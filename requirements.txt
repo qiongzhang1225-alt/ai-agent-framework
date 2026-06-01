@@ -4,7 +4,7 @@ python-dotenv>=1.0
 
 # 长期记忆（ChromaDB + 中文 embedding 可选）
 chromadb>=1.0
-# sentence-transformers>=2.0   # 如需中文语义搜索，取消注释
+sentence-transformers>=2.0   # 语义搜索（首次使用自动下载模型）
 
 # Web 服务
 fastapi>=0.115

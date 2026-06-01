@@ -67,9 +67,10 @@ def _get_embedding_fn():
         if not _BGE_MODEL_PATH.exists():
             # bge 模型不存在时使用 ChromaDB 内置默认 embedding（all-MiniLM-L6-v2）
             # 如需中文优化，下载 bge-base-zh-v1.5 到 models/bge-base-zh-v1.5/
-            print("[memory] 未检测到 bge 模型，使用 ChromaDB 默认 embedding（英文）")
-            print("[memory] 如需中文语义搜索，请下载模型到 models/bge-base-zh-v1.5/（见 models/README.md）")
-            return None
+            print("[memory] bge 模型不存在，使用 sentence-transformers 默认模型（auto-download）")
+            from chromadb.utils import embedding_functions
+            _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction()
+            return _embedding_fn
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         from chromadb.utils import embedding_functions
