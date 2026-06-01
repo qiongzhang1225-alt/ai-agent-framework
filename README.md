@@ -10,8 +10,7 @@
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-# 编辑 .env 填入 API Key
+直接编辑 .env，把 Your true key here 替换为你的真实 API Key
 python server.py
 ```
 
