@@ -65,10 +65,11 @@ def _get_embedding_fn():
     global _embedding_fn
     if _embedding_fn is None:
         if not _BGE_MODEL_PATH.exists():
-            raise RuntimeError(
-                f"bge embedding 模型不在 {_BGE_MODEL_PATH}。"
-                "请按 models/README.md 手动下载 pytorch_model.bin。"
-            )
+            # bge 模型不存在时使用 ChromaDB 内置默认 embedding（all-MiniLM-L6-v2）
+            # 如需中文优化，下载 bge-base-zh-v1.5 到 models/bge-base-zh-v1.5/
+            print("[memory] 未检测到 bge 模型，使用 ChromaDB 默认 embedding（英文）")
+            print("[memory] 如需中文语义搜索，请下载模型到 models/bge-base-zh-v1.5/（见 models/README.md）")
+            return None
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         from chromadb.utils import embedding_functions
