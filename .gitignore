@@ -1,0 +1,7 @@
+.env
+.memory
+.sandbox
+__pycache__
+*.pyc
+.venv
+models/

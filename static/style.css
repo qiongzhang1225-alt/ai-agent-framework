@@ -1,0 +1,482 @@
+/* === 信息统合思念体 · 雪夜主题 === */
+
+/* 主对话消息里嵌的子对话跳转 chip
+   工具返回 [→ name](#sub=id) 形式的 markdown 链接，marked 渲染成
+   <a href="#sub=xxx">→ name</a>。这里直接用 attribute 选择器锁定 href 前缀，
+   优先级足够覆盖 .prose-msg a 的下划线样式（用 !important 保险）。 */
+.prose-msg a[href^="#sub="],
+a[href^="#sub="] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.55rem;
+  margin: 0 0.15rem;
+  border-radius: 0.375rem;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: rgb(191, 219, 254) !important;
+  font-size: 0.9em;
+  text-decoration: none !important;
+  text-underline-offset: 0 !important;
+  transition: background 120ms, border-color 120ms, transform 120ms;
+  cursor: pointer;
+}
+.prose-msg a[href^="#sub="]:hover,
+a[href^="#sub="]:hover {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: rgba(96, 165, 250, 0.7);
+  color: rgb(219, 234, 254) !important;
+  transform: translateY(-1px);
+}
+.prose-msg a[href^="#sub="]:active,
+a[href^="#sub="]:active {
+  transform: translateY(0);
+}
+
+
+/* 基础滚动条样式 */
+.scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
+
+/* === 玻璃面板（暗色毛玻璃） === */
+.glass-panel {
+  background-color: rgba(20, 22, 35, 0.55);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* === Markdown 消息样式 === */
+.prose-msg p { margin: 0.4em 0; line-height: 1.7; }
+.prose-msg p:first-child { margin-top: 0; }
+.prose-msg p:last-child { margin-bottom: 0; }
+.prose-msg h1, .prose-msg h2, .prose-msg h3, .prose-msg h4 {
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  color: #f3f4f6;
+}
+.prose-msg h1 { font-size: 1.4em; }
+.prose-msg h2 { font-size: 1.25em; }
+.prose-msg h3 { font-size: 1.1em; }
+.prose-msg ul, .prose-msg ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+.prose-msg ul { list-style: disc; }
+.prose-msg ol { list-style: decimal; }
+.prose-msg li { margin: 0.2em 0; }
+.prose-msg a {
+  color: #8676BD;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-msg a:hover { color: #a899d4; }
+.prose-msg blockquote {
+  border-left: 3px solid rgba(139, 118, 189, 0.5);
+  padding-left: 1em;
+  margin: 0.6em 0;
+  color: #d4d4d8;
+  font-style: italic;
+}
+.prose-msg table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.prose-msg th, .prose-msg td {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.4em 0.8em;
+}
+.prose-msg th { background: rgba(255, 255, 255, 0.05); font-weight: 600; }
+
+/* 内联 code */
+.prose-msg :not(pre) > code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.88em;
+  color: #fbbf24;
+}
+
+/* 代码块 */
+.prose-msg pre {
+  background: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.85em 1em;
+  margin: 0.6em 0;
+  overflow-x: auto;
+  font-size: 0.85em;
+  line-height: 1.55;
+  position: relative;
+}
+.prose-msg pre code {
+  background: transparent !important;
+  padding: 0 !important;
+  color: #e5e7eb;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+/* 代码块复制按钮（伪元素 hack 无法做交互，所以用 JS 委托） */
+.prose-msg pre::before {
+  content: '⧉ 复制';
+  position: absolute;
+  top: 6px; right: 8px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.prose-msg pre:hover::before { opacity: 1; }
+
+/* === 雪花动画 === */
+.snow-layer {
+  overflow: hidden;
+  z-index: 0;
+}
+.snow-layer::before,
+.snow-layer::after {
+  content: '';
+  position: absolute;
+  inset: -50% -50% 0 -50%;
+  background-image:
+    radial-gradient(2px 2px at 40px 60px, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1.5px 1.5px at 120px 200px, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 220px 80px, rgba(255,255,255,0.6), transparent),
+    radial-gradient(2px 2px at 380px 150px, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1.5px 1.5px at 500px 300px, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 600px 100px, rgba(255,255,255,0.6), transparent),
+    radial-gradient(2px 2px at 720px 250px, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1.5px 1.5px at 840px 50px, rgba(255,255,255,0.5), transparent);
+  background-size: 900px 400px;
+  animation: snowfall 25s linear infinite;
+}
+.snow-layer::after {
+  background-size: 1200px 600px;
+  opacity: 0.6;
+  animation-duration: 40s;
+}
+@keyframes snowfall {
+  0%   { transform: translateY(-400px); }
+  100% { transform: translateY(400px); }
+}
+
+/* === select 下拉箭头颜色 === */
+select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%23a1a1aa' viewBox='0 0 24 24'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px;
+  appearance: none;
+  padding-right: 28px;
+}
+
+/* === 输入框 focus 时玻璃面板高亮 === */
+.glass-panel:focus-within {
+  border-color: rgba(139, 118, 189, 0.4);
+}
+
+/* === 消息行间距优化 === */
+.message-row { padding: 2px 0; }
+
+/* 消息头像圆角裁剪 */
+.message-row .rounded-full {
+  overflow: hidden !important;
+}
+.message-row .rounded-full img {
+  border-radius: 9999px;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* === 消息出现动画 === */
+.message-row {
+  animation: msgFadeIn 0.25s ease-out;
+}
+@keyframes msgFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   白天主题 · 「教室阳光」
+
+   设计原则：
+   1. CSS Variables 单一来源 —— 改一个 var 整套主题跟变
+   2. 气泡 / chip 用「不透明色」，不用 rgba 半透叠加 ——
+      避免消息密度变化导致视觉色不稳定
+   3. 玻璃面板（sidebar / 输入框）保留半透，让背景图气氛透出
+   4. 暖米白 + 深暖灰文字 + 保留紫色 accent —— 与 day_bg.png 暖橘氛围契合
+   5. 阴影柔和、边框低对比 —— 浅色主题靠 elevation 分层而非高对比度
+   ════════════════════════════════════════════════════════════════════════ */
+
+body.theme-light {
+  /* ── 色板（修改这里，整套跟随）── */
+  --bg-page:        #FFF6E8;                       /* 整体页面底色 */
+  --surface-1:      rgba(255, 250, 240, 0.62);     /* 玻璃面板（半透）*/
+  --surface-2:      #FFF1E0;                       /* 消息气泡（不透）*/
+  --surface-3:      #F7E6CC;                       /* chip / 工作目录条 */
+  --surface-4:      #FAEDD8;                       /* 二级输入框 */
+  --border-soft:    rgba(120, 95, 75, 0.13);       /* 一般描边 */
+  --border-strong:  rgba(120, 95, 75, 0.28);       /* focus / 选中边框 */
+  --text-primary:   #3A2E25;                       /* 主文字（深暖灰）*/
+  --text-secondary: #5A4838;                       /* 辅文字（header 清单按钮等）*/
+  --text-muted:     #826E55;                       /* 弱文字（模型名等）*/
+  --accent:         #8676BD;                       /* 主色 = dark 同款紫 */
+  --accent-hover:   #9D8FCC;
+  --accent-soft:    rgba(134, 118, 189, 0.22);
+  --shadow-soft:    rgba(80, 55, 40, 0.10);
+
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+}
+
+/* ── 背景图替换为暖色 day_bg + 浅色 overlay ──
+   day_bg.png 1192×630（宽高比 1.89，比屏幕还扁）：
+   - cover：让宽度优先铺满，避免左右出现空白条
+   - position center 30%：垂直锚点偏上，保留人物上半身，下面溢出被裁
+   - no-repeat：单张图，不要平铺 */
+body.theme-light::before {
+  background-image: url('/assets/day_bg.png') !important;
+  background-size: cover !important;
+  background-position: center 30% !important;
+  background-repeat: no-repeat !important;
+}
+body.theme-light::after {
+  background: linear-gradient(180deg,
+              rgba(255, 246, 232, 0.22),
+              rgba(255, 220, 190, 0.42)) !important;
+}
+
+/* ── 面板 / 容器背景（Tailwind zinc-9xx 系）── */
+body.theme-light .bg-zinc-900,
+body.theme-light .bg-zinc-900\/60,
+body.theme-light .bg-zinc-900\/95,
+body.theme-light .bg-zinc-900\/98,
+body.theme-light [style*="rgb(17, 17, 22)"] {
+  background-color: var(--bg-page) !important;
+}
+body.theme-light .bg-zinc-800,
+body.theme-light .bg-zinc-800\/40,
+body.theme-light .bg-zinc-800\/50,
+body.theme-light .bg-zinc-800\/60,
+body.theme-light .bg-zinc-800\/70 {
+  background-color: var(--surface-2) !important;
+}
+body.theme-light .bg-zinc-700,
+body.theme-light .bg-zinc-700\/60 {
+  background-color: var(--surface-3) !important;
+}
+body.theme-light .bg-black\/40 {
+  background-color: rgba(120, 95, 75, 0.35) !important;
+}
+body.theme-light .bg-black\/60,
+body.theme-light .bg-black\/70 {
+  background-color: rgba(120, 95, 75, 0.5) !important;
+}
+
+/* ── 文字 ── */
+body.theme-light .text-zinc-100,
+body.theme-light .text-zinc-200,
+body.theme-light .text-zinc-300,
+body.theme-light .text-white {
+  color: var(--text-primary) !important;
+}
+body.theme-light .text-zinc-400 {
+  color: var(--text-secondary) !important;
+}
+body.theme-light .text-zinc-500,
+body.theme-light .text-zinc-600 {
+  color: var(--text-muted) !important;
+}
+
+/* button.bg-primary 上的白色文字保持白 */
+body.theme-light .bg-primary.text-white,
+body.theme-light button.bg-primary {
+  color: #fff !important;
+}
+
+/* ── 边框 ── */
+body.theme-light .border-white\/5,
+body.theme-light .border-white\/10,
+body.theme-light .border-white\/15,
+body.theme-light .border-white\/20 {
+  border-color: var(--border-soft) !important;
+}
+
+/* ── hover ── */
+body.theme-light .hover\:bg-white\/5:hover,
+body.theme-light .hover\:bg-white\/10:hover {
+  background-color: rgba(120, 95, 75, 0.07) !important;
+}
+body.theme-light .hover\:bg-zinc-700\/60:hover {
+  background-color: rgba(120, 95, 75, 0.12) !important;
+}
+body.theme-light .hover\:text-white:hover,
+body.theme-light .hover\:text-zinc-100:hover {
+  color: var(--text-primary) !important;
+}
+body.theme-light .hover\:text-zinc-300:hover {
+  color: #5A4838 !important;
+}
+
+/* ── accent（primary 紫色系，dark / light 共用主色，调整透明度变体）── */
+body.theme-light .bg-primary {
+  background-color: var(--accent) !important;
+}
+body.theme-light .hover\:bg-primary-light:hover {
+  background-color: var(--accent-hover) !important;
+}
+body.theme-light .bg-primary\/20 { background-color: rgba(134, 118, 189, 0.18) !important; }
+body.theme-light .bg-primary\/25 { background-color: rgba(134, 118, 189, 0.22) !important; }
+body.theme-light .bg-primary\/30 { background-color: var(--accent-soft) !important; }
+body.theme-light .bg-primary\/40 { background-color: rgba(134, 118, 189, 0.32) !important; }
+body.theme-light .hover\:bg-primary\/30:hover {
+  background-color: rgba(134, 118, 189, 0.34) !important;
+}
+/* primary 选中态的 .text-white 保留白色 */
+body.theme-light .bg-primary\/30.text-white,
+body.theme-light .bg-primary\/40.text-white {
+  color: #fff !important;
+}
+body.theme-light .text-primary-light {
+  color: var(--accent) !important;
+}
+
+/* ── 强调色文字（成功 / 警告 / 信息）── */
+body.theme-light .text-amber-100  { color: #6B4030 !important; }
+body.theme-light .text-amber-200  { color: #7A5040 !important; }
+body.theme-light .text-amber-300\/70 { color: rgba(150, 100, 60, 0.75) !important; }
+body.theme-light .text-orange-200 { color: #A85020 !important; }
+body.theme-light .text-orange-300 { color: #B05010 !important; }
+body.theme-light .text-blue-200   { color: #3060A0 !important; }
+body.theme-light .text-blue-300   { color: #4070B0 !important; }
+body.theme-light .text-emerald-200 { color: #2D7A5A !important; }
+
+/* ── 玻璃面板（保留半透，让背景透出）── */
+body.theme-light .glass-panel {
+  background-color: var(--surface-1);
+  backdrop-filter: blur(14px) saturate(108%);
+  -webkit-backdrop-filter: blur(14px) saturate(108%);
+  border-color: var(--border-soft);
+}
+body.theme-light .glass-panel:focus-within {
+  border-color: var(--border-strong);
+}
+
+/* ── 输入框 ── */
+body.theme-light input,
+body.theme-light textarea {
+  color: var(--text-primary) !important;
+}
+body.theme-light .placeholder-zinc-500::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* ── 阴影 ── */
+body.theme-light .shadow-black\/50,
+body.theme-light .shadow-black\/60,
+body.theme-light .shadow-black\/80 {
+  --tw-shadow-color: var(--shadow-soft) !important;
+}
+
+/* ── 滚动条 ── */
+body.theme-light .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(120, 95, 75, 0.18);
+}
+body.theme-light .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 95, 75, 0.32);
+}
+body.theme-light * {
+  scrollbar-color: rgba(120, 95, 75, 0.18) transparent;
+}
+
+/* ── select 下拉箭头 ── */
+body.theme-light select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' stroke='%237A6855' viewBox='0 0 24 24'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+}
+
+/* ── Markdown 消息 ── */
+body.theme-light .prose-msg h1,
+body.theme-light .prose-msg h2,
+body.theme-light .prose-msg h3,
+body.theme-light .prose-msg h4 {
+  color: var(--text-primary);
+}
+body.theme-light .prose-msg a {
+  color: var(--accent);
+}
+body.theme-light .prose-msg a:hover {
+  color: var(--accent-hover);
+}
+body.theme-light .prose-msg blockquote {
+  border-left-color: rgba(134, 118, 189, 0.42);
+  color: #5A4F44;
+}
+body.theme-light .prose-msg :not(pre) > code {
+  background: rgba(180, 130, 80, 0.18);
+  color: #7A4A1A;
+}
+/* 代码块在白天主题下保留深底，让 syntax highlighting 仍清晰 */
+body.theme-light .prose-msg pre {
+  background: rgba(58, 46, 37, 0.95) !important;
+  border-color: rgba(120, 95, 75, 0.3);
+}
+body.theme-light .prose-msg pre code {
+  color: #F4EBD8;
+}
+body.theme-light .prose-msg pre::before {
+  color: rgba(255, 240, 220, 0.55);
+  background: rgba(80, 65, 50, 0.7);
+}
+body.theme-light .prose-msg th,
+body.theme-light .prose-msg td {
+  border-color: rgba(120, 95, 75, 0.22);
+}
+body.theme-light .prose-msg th {
+  background: rgba(180, 130, 80, 0.12);
+}
+
+/* ── sub conv chip：白天主题改用暖橙色调（dark 是冷蓝）── */
+body.theme-light .prose-msg a[href^="#sub="],
+body.theme-light a[href^="#sub="] {
+  background: rgba(180, 130, 80, 0.16);
+  border-color: rgba(180, 130, 80, 0.42);
+  color: #7A4A1A !important;
+}
+body.theme-light .prose-msg a[href^="#sub="]:hover,
+body.theme-light a[href^="#sub="]:hover {
+  background: rgba(180, 130, 80, 0.28);
+  border-color: rgba(180, 130, 80, 0.6);
+  color: #5A3010 !important;
+}
+
+/* ── 雪花层 → 暖色花瓣（保留动画，换 sprite）── */
+body.theme-light .snow-layer::before,
+body.theme-light .snow-layer::after {
+  background-image:
+    radial-gradient(2.5px 3px at 40px 60px, rgba(255, 200, 175, 0.6), transparent),
+    radial-gradient(2px 2.5px at 120px 200px, rgba(255, 180, 160, 0.45), transparent),
+    radial-gradient(2.5px 3px at 220px 80px, rgba(255, 210, 185, 0.55), transparent),
+    radial-gradient(2px 2.5px at 380px 150px, rgba(255, 195, 170, 0.4), transparent),
+    radial-gradient(2px 2.5px at 500px 300px, rgba(255, 215, 195, 0.5), transparent),
+    radial-gradient(2.5px 3px at 600px 100px, rgba(255, 200, 175, 0.55), transparent),
+    radial-gradient(2px 2.5px at 720px 250px, rgba(255, 195, 170, 0.4), transparent),
+    radial-gradient(2px 2.5px at 840px 50px, rgba(255, 215, 195, 0.5), transparent);
+}

@@ -1,0 +1,31 @@
+# Agent 核心（自建框架，无 LangChain 依赖）
+httpx>=0.27           # DeepSeek API 客户端（OpenAI 兼容）
+python-dotenv>=1.0    # .env 加载
+
+# 长期记忆（向量库 + 中文 embedding）
+chromadb>=1.0
+sentence-transformers>=5.0   # 加载 bge-base-zh-v1.5（本地路径），见 models/README.md
+
+# Web 前端（FastAPI 替代 Streamlit）
+fastapi>=0.115
+uvicorn[standard]>=0.32
+jinja2>=3.1
+sse-starlette>=2.1
+python-multipart>=0.0.9
+
+# 已有工具
+ddgs>=9.14            # DuckDuckGo 搜索（旧名 duckduckgo-search，9.x 起改名）
+requests>=2.31
+beautifulsoup4>=4.12
+
+# 办公自动化预装库（execute_code 可直接使用）
+pandas>=2.0
+openpyxl>=3.1
+numpy>=1.24
+matplotlib>=3.7
+seaborn>=0.13
+python-docx>=1.1
+python-pptx>=1.0
+pdfplumber>=0.10
+reportlab>=4.0
+Pillow>=10.0
