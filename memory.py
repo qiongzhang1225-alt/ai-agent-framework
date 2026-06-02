@@ -67,6 +67,7 @@ def _get_embedding_fn():
         if not _BGE_MODEL_PATH.exists():
             # bge 模型不存在时使用 ChromaDB 内置默认 embedding（all-MiniLM-L6-v2）
             # 如需中文优化，下载 bge-base-zh-v1.5 到 models/bge-base-zh-v1.5/
+            _ensure_hf_mirror()
             print("[memory] bge 模型不存在，使用 sentence-transformers 默认模型（auto-download）")
             from chromadb.utils import embedding_functions
             _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction()
@@ -78,6 +79,18 @@ def _get_embedding_fn():
             model_name=str(_BGE_MODEL_PATH)
         )
     return _embedding_fn
+
+
+def _ensure_hf_mirror():
+    """如果 Hugging Face 直连不通，自动切到国内镜像。"""
+    import os as _os, socket as _socket
+    if _os.environ.get("HF_ENDPOINT"):
+        return
+    try:
+        _socket.create_connection(("huggingface.co", 443), timeout=2)
+    except OSError:
+        _os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        print("[memory] huggingface.co 不可达，自动切换到 hf-mirror.com（国内镜像）")
 
 
 def _get_collection():
