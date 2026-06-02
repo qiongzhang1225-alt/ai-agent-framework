@@ -3,7 +3,7 @@
 - ``ask_user``    主动追问主人（弹窗）
 - ``audit_query`` 自己查看刚才用了哪些工具（只读自己当前对话）
 
-让私人助手在意图不明 / 多个可行方案时，**暂停**当前轮、把问题弹给用户、
+让有希在意图不明 / 多个可行方案时，**暂停**当前轮、把问题弹给用户、
 等用户在前端选项中点一个 / 或自由作答，再继续。
 
 实现要点：
@@ -26,7 +26,7 @@ from ai_agent import tool
 # server.py 收到用户答案后查这个 dict，set_result 让工具继续
 _PENDING_ASKS: dict[str, "asyncio.Future"] = {}
 
-# 默认等待用户回答的超时（秒）。10 分钟内不答就放私人助手自己判断走。
+# 默认等待用户回答的超时（秒）。10 分钟内不答就放有希自己判断走。
 ASK_TIMEOUT_SECONDS = 600
 
 
@@ -48,7 +48,7 @@ async def require_master_approval(
     ``False`` 表示拒绝 / 超时 / emitter 不可用。
     """
     question = (
-        f"⚠️ 当前是**受限模式子对话**，私人助手请求执行破坏性 / 全局操作：\n\n"
+        f"⚠️ 当前是**受限模式子对话**，有希请求执行破坏性 / 全局操作：\n\n"
         f"{action_summary}\n\n"
         f"批准让她继续吗？"
     )
@@ -69,6 +69,46 @@ def is_sub(config: dict) -> bool:
     """判断当前对话是否是子对话（不分 level）。"""
     cfg = (config or {}).get("configurable", {}) if config else {}
     return cfg.get("conv_kind") == "sub"
+
+
+def _normalize_string_list(value) -> list[str]:
+    """把 LLM 可能乱传的 options / choices 字段规范化成 ``list[str]``。
+
+    LLM 经常传错类型：
+    - list[str] → 正确，直接用
+    - 字符串 ``"A、B、C"`` → 经典陷阱：``list("ABC")`` 会拆字符，弹窗里每个
+      字符都成了独立选项（"单个字符 / 标点作选项" 就是这么来的）。这里按
+      常见分隔符（、；;|,，\\n）拆开。
+    - JSON 字符串 ``'["A","B"]'`` → 用 json.loads 还原
+    - None / 空 → 返回 []
+
+    任何无法识别的类型都返回空列表（不阻塞主流程）。
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        # 1) 尝试 JSON parse（LLM 偶尔会传 `'["A","B"]'` 字符串）
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                import json as _json
+                parsed = _json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+            except Exception:
+                pass
+        # 2) 按常见分隔符拆
+        for sep in ("、", "；", ";", "|", ",", "，", "\n"):
+            if sep in s:
+                return [p.strip() for p in s.split(sep) if p.strip()]
+        # 3) 单一选项（整串视作一个）
+        return [s]
+    # 其他类型（dict / int 等）→ 空
+    return []
 
 
 async def _prompt_user(
@@ -97,13 +137,16 @@ async def _prompt_user(
     fut: asyncio.Future = loop.create_future()
     _PENDING_ASKS[ask_id] = fut
 
+    # 防御性：即便上层没规范化，也不能让 list(str) 把字符串拆字符
+    safe_options = options if isinstance(options, list) else _normalize_string_list(options)
+    safe_groups = groups if isinstance(groups, list) else []
     try:
         await emitter({
             "type": "ask_user",
             "id": ask_id,
             "question": question,
-            "options": list(options or []),
-            "groups": list(groups or []),
+            "options": safe_options,
+            "groups": safe_groups,
         })
         return await asyncio.wait_for(fut, timeout=ASK_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
@@ -269,27 +312,44 @@ async def ask_user(
             "请改为在文本回复里直接问主人。]"
         )
 
-    # 规范化 groups：丢弃非法项；每项必须有 label + choices(list)
+    # ── 规范化 options ──
+    # 经典陷阱：LLM 传 options="选项A、选项B" 时，原代码 list(options) 会
+    # 把字符串拆成单字符（每个汉字 / 标点都成独立选项），就是"单字符选项"
+    # bug 的来源。改用 _normalize_string_list 兼容 list / str+分隔符 / JSON。
+    options_was_str = isinstance(options, str)
+    norm_options = _normalize_string_list(options)
+
+    # ── 规范化 groups：丢弃非法项；每项必须有 label + choices ──
     norm_groups: list[dict] = []
+    groups_had_str_choices = False
     for g in (groups or []):
         if not isinstance(g, dict):
             continue
         label = str(g.get("label", "")).strip()
-        choices = g.get("choices") or []
-        if not label or not isinstance(choices, list) or not choices:
+        raw_choices = g.get("choices")
+        if isinstance(raw_choices, str):
+            groups_had_str_choices = True
+        choices = _normalize_string_list(raw_choices)
+        if not label or not choices:
             continue
-        norm_groups.append({
-            "label": label,
-            "choices": [str(c) for c in choices if str(c).strip()],
-        })
+        norm_groups.append({"label": label, "choices": choices})
 
-    answer = await _prompt_user(question, options or [], config, groups=norm_groups)
+    answer = await _prompt_user(question, norm_options, config, groups=norm_groups)
     if answer is None:
         return (
             "[用户在 10 分钟内未回答 —— 请按你的最佳判断继续，"
             "不要再次调用 ask_user。]"
         )
-    return f"用户回答：{answer}"
+
+    # 如果触发了字符串→列表的兼容转换，提醒 LLM 下次直接传 list
+    hint = ""
+    if options_was_str or groups_had_str_choices:
+        hint = (
+            "\n\n[系统提示：你这次 ask_user 把 options/choices 传成了字符串"
+            "（如 \"A、B、C\"），已自动按分隔符拆开。**下次请直接传 list**"
+            "（如 [\"A\", \"B\", \"C\"]），避免单字符被拆成独立选项的 bug。]"
+        )
+    return f"用户回答：{answer}{hint}"
 
 
 @tool
