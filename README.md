@@ -7,6 +7,10 @@
 ## 快速开始
 
 ```bash
+# Windows: 双击 start.bat 一键启动
+start.bat
+
+# 或手动：
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
