@@ -1,4 +1,4 @@
-"""自我修改工具集（self-edit）—— 让有希自己优化代码 / prompt。
+"""自我修改工具集（self-edit）—— 让私人助手自己优化代码 / prompt。
 
 工具集（6 个 @tool + 内部 helpers）：
 
@@ -492,7 +492,7 @@ def self_edit_file(
     - 改完简短告诉主人："我改了 X 的 Y 处，commit abc123；重启 server 生效；
       不喜欢可 ``self_rollback(1)`` 或 ``git revert abc123``"
     - **不要连续改同一文件 ≥ 3 次**。改 3 次还不对 → 停下问主人方向
-    - 改 ``prompts/yuki.md``（你的人设核心）需要主人**明确要求**
+    - 改 ``prompts/assistant.md``（你的人设核心）需要主人**明确要求**
 
     Args:
         path: 项目相对路径（如 ``"tools/files.py"``）

@@ -22,7 +22,7 @@ python server.py
 
 ## 设定角色卡
 
-编辑 prompts/yuki.md，这个文件会被注入 AI 的 system prompt。
+编辑 prompts/assistant.md，这个文件会被注入 AI 的 system prompt。
 
 建议包含：名称、身份、性格、说话风格、规则。
 
@@ -92,7 +92,7 @@ ai_agent/        # Agent 引擎
 tools/           # 工具
 skills/          # 技能（也是 @tool）
 prompts/
-  yuki.md        <-- 你的角色卡
+  assistant.md        <-- 你的角色卡
   system.md      # 系统指令
 templates/       # 前端
 static/          # CSS

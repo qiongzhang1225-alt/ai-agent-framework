@@ -3,7 +3,7 @@
 - ``ask_user``    主动追问主人（弹窗）
 - ``audit_query`` 自己查看刚才用了哪些工具（只读自己当前对话）
 
-让有希在意图不明 / 多个可行方案时，**暂停**当前轮、把问题弹给用户、
+让私人助手在意图不明 / 多个可行方案时，**暂停**当前轮、把问题弹给用户、
 等用户在前端选项中点一个 / 或自由作答，再继续。
 
 实现要点：
@@ -26,7 +26,7 @@ from ai_agent import tool
 # server.py 收到用户答案后查这个 dict，set_result 让工具继续
 _PENDING_ASKS: dict[str, "asyncio.Future"] = {}
 
-# 默认等待用户回答的超时（秒）。10 分钟内不答就放有希自己判断走。
+# 默认等待用户回答的超时（秒）。10 分钟内不答就放私人助手自己判断走。
 ASK_TIMEOUT_SECONDS = 600
 
 
@@ -48,7 +48,7 @@ async def require_master_approval(
     ``False`` 表示拒绝 / 超时 / emitter 不可用。
     """
     question = (
-        f"⚠️ 当前是**受限模式子对话**，有希请求执行破坏性 / 全局操作：\n\n"
+        f"⚠️ 当前是**受限模式子对话**，私人助手请求执行破坏性 / 全局操作：\n\n"
         f"{action_summary}\n\n"
         f"批准让她继续吗？"
     )

@@ -15,7 +15,7 @@ def fetch_multiple(urls: list, max_chars: int = 2000) -> str:
     for i, url in enumerate(urls):
         try:
             resp = requests.get(url, timeout=15, headers={
-                "User-Agent": "Mozilla/5.0 (compatible; Yuki/1.0)"
+                "User-Agent": "Mozilla/5.0 (compatible; Assistant/1.0)"
             }, proxies=proxies)
             resp.raise_for_status()
             text = resp.text

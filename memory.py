@@ -36,7 +36,7 @@ TRASH_KEEP_DAYS = 7
 
 # 记忆分类：
 #   user_profile     - 用户画像（偏好/习惯/个人信息）
-#   agent_directive  - 对有希的行为指示
+#   agent_directive  - 对私人助手的行为指示
 #   other            - 其他跨对话的事实
 #   chat_log         - 主对话压缩后的"对话片段记忆"（默认从 recall 过滤掉，
 #                      避免污染严肃检索；显式查"上次聊到 X" 时才包含）
@@ -44,7 +44,7 @@ VALID_CATEGORIES = ("user_profile", "agent_directive", "other", "chat_log")
 DEFAULT_CATEGORY = "other"
 DEFAULT_IMPORTANCE = 5  # 1-10
 
-# 默认设置：写权限默认关闭（有希只能 remember 存新，不能 update/delete 老的）
+# 默认设置：写权限默认关闭（私人助手只能 remember 存新，不能 update/delete 老的）
 DEFAULT_SETTINGS = {"memory_write_enabled": False}
 
 # 中文优化 embedding：bge-base-zh-v1.5（本地加载，永不联网）

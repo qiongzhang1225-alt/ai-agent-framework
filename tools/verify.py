@@ -1,13 +1,13 @@
 """verify_change 工具 —— 改完代码后的"自动断言"层。
 
 设计动机：
-yuki 写 CSS 选择器 `\\/` 错了 30 处，浏览器静默忽略，DOM 不报错。
+assistant 写 CSS 选择器 `\\/` 错了 30 处，浏览器静默忽略，DOM 不报错。
 她没有"打开 DevTools 看哪些规则被划掉"的检查习惯。这个工具把
 "写完检查关键 pattern" 变成一行调用。
 
 约束（主人定的）：
 - 检测失败**不强制 revert**，只返回警告
-- 让 yuki 自己看完决定是修还是接受
+- 让 assistant 自己看完决定是修还是接受
 - audit.jsonl 里记录每次 verify 结果（pass / warn）
 """
 from __future__ import annotations

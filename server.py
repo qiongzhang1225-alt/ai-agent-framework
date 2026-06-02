@@ -50,7 +50,7 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 
 # ── App ──────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="信息统合思念体")
+app = FastAPI(title="私人助手")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
@@ -77,7 +77,7 @@ async def _on_startup_backup():
 
 
 # 启动时兜底 commit working tree（防 self_edit 工具被改坏跳过 commit）。
-# 即便有希改了 tools/self_edit.py 让"以后不 commit"，本 hook 仍会兜底落账。
+# 即便私人助手改了 tools/self_edit.py 让"以后不 commit"，本 hook 仍会兜底落账。
 # 失败永不阻塞启动。
 @app.on_event("startup")
 async def _on_startup_auto_commit():
@@ -142,8 +142,8 @@ def _load_into_globals() -> None:
         conversations[tid] = _ensure_conv_fields(data)
 
 
-MASTER_CONV_ID = "master_yuki"
-MASTER_CONV_NAME = "有希"
+MASTER_CONV_ID = "master_assistant"
+MASTER_CONV_NAME = "私人助手"
 
 
 def new_conversation(
@@ -378,7 +378,7 @@ async def update_conversation(tid: str, req: UpdateConvRequest) -> dict:
         raise HTTPException(404, "Conversation not found")
     conv = conversations[tid]
     if req.name is not None:
-        # master 不能改名（防止用户误改后找不到"有希"）
+        # master 不能改名（防止用户误改后找不到"私人助手"）
         if conv.get("kind") == "master":
             raise HTTPException(400, "主对话名字固定，不能改")
         conv["name"] = req.name.strip() or "未命名"
@@ -1038,7 +1038,7 @@ async def delete_memory_route(mem_id: str):
 #    memory（category=chat_log）
 # 4) master.messages 砍掉这些已压缩的话题段
 #
-# chat_log 类别在 recall 时默认被过滤（避免污染严肃检索），但是有希查
+# chat_log 类别在 recall 时默认被过滤（避免污染严肃检索），但是私人助手查
 # "我们上次聊到 X" 时显式包含。
 
 

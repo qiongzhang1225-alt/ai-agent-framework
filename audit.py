@@ -2,7 +2,7 @@
 
 把每次工具调用（before / after）写到
 ``.sandbox/_meta/<thread_id>/audit.jsonl``，每行一个 JSON 对象，便于：
-- 用户事后查"有希什么时候改了什么"
+- 用户事后查"私人助手什么时候改了什么"
 - debug 工具调用链
 - 万一出问题作为恢复线索
 

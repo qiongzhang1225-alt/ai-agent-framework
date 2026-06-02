@@ -1,6 +1,6 @@
 """系统命令调用（白名单制，5 层兜底）—— P2-H。
 
-让有希能调系统工具处理 execute_code 难做的事：
+让私人助手能调系统工具处理 execute_code 难做的事：
 - ``git`` 看仓库历史 / diff / blame
 - ``7z`` 压缩 / 解压
 - ``ffmpeg`` 音视频转码
@@ -80,7 +80,7 @@ _WHITELIST: dict[str, dict] = {
     },
     "curl": {
         "allowed_subcommands": None,
-        # 禁下载到任意路径（防越界写文件）；让有希用 write_file 自己保存响应体
+        # 禁下载到任意路径（防越界写文件）；让私人助手用 write_file 自己保存响应体
         "blocked_args": {"-o", "--output", "-O", "--remote-name", "--remote-header-name"},
         "desc": "调用外部 REST API（不能下载到任意文件，要保存响应请配合 write_file）",
     },

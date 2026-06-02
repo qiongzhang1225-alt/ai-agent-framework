@@ -201,7 +201,7 @@ async def vision_describe(
         workdir = Path(cfg.get("workdir") or str(DEFAULT_WORKDIR)).resolve()
         path = _resolve_workdir_image(workdir, image_ref)
 
-    # 路径 3 兜底：再试一次 img_<image_ref>（万一有希忘了加 img_ 前缀）
+    # 路径 3 兜底：再试一次 img_<image_ref>（万一私人助手忘了加 img_ 前缀）
     if path is None and not image_ref.startswith("img_") and "/" not in image_ref and "\\" not in image_ref:
         path = find_image_path(thread_id, f"img_{image_ref}")
 

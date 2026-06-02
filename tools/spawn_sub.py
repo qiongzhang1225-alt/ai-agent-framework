@@ -1,4 +1,4 @@
-"""spawn_sub_conversation 工具：让有希在主对话里自己开子对话。
+"""spawn_sub_conversation 工具：让私人助手在主对话里自己开子对话。
 
 仅在 master 对话里可用（其他对话调用拒绝）。创建后返回特殊跳转标记
 ``[→sub:<id>|<name>]``，前端识别后渲染成可点击 chip。
@@ -14,7 +14,7 @@ def spawn_sub_conversation(
     sub_level: str = "restricted",
     config: dict = None,
 ) -> str:
-    """在**主对话**里创建一个新的子对话挂到自己（"有希"）下面。
+    """在**主对话**里创建一个新的子对话挂到自己（"私人助手"）下面。
 
     什么时候用：
     - 主人在主对话里说"开个对话做 X" / "新开一个聊 Y" / "专门讨论 Z"
@@ -44,7 +44,7 @@ def spawn_sub_conversation(
     if conv_kind != "master":
         return (
             f"❌ 当前对话不是主对话（kind={conv_kind!r}），无法 spawn 子对话。"
-            f"spawn_sub_conversation 只在主对话\"有希\"里可用。"
+            f"spawn_sub_conversation 只在主对话\"私人助手\"里可用。"
             f"告诉主人：在 sidebar 顶部点\"新对话\"按钮选 sub_advanced / sub_restricted 即可。"
         )
 

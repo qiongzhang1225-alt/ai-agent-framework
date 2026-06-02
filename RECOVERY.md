@@ -1,6 +1,6 @@
-# 信息统合思念体 · 兜底与回滚手册
+# 私人助手 · 兜底与回滚手册
 
-> 激进放权后必读。出问题时按本文档操作，**别让她（有希）自己救自己** —— 兜底入口都在你手上。
+> 激进放权后必读。出问题时按本文档操作，**别让她（私人助手）自己救自己** —— 兜底入口都在你手上。
 > 文档位置：`E:\AI-Agent\RECOVERY.md`（项目根，git 跟踪）。
 
 ---
@@ -104,7 +104,7 @@ Get-ChildItem .sandbox/_meta -Directory |
 Get-Content .sandbox/_meta/<thread_id>/audit.jsonl -Tail 30
 ```
 
-或者在 UI 里跟有希说："调 audit_query 看你最近做了什么"。
+或者在 UI 里跟私人助手说："调 audit_query 看你最近做了什么"。
 
 ### 2.3 看她改了哪些文件 / 哪些行
 
@@ -144,7 +144,7 @@ git revert HEAD
 # 会创建一个新 commit "Revert ..."，保留历史，安全
 ```
 
-如果她**有希**在对话里说"刚那个改坏了"，让她调 `self_rollback(1)` 即可（等价于 `git revert HEAD`）。
+如果她**私人助手**在对话里说"刚那个改坏了"，让她调 `self_rollback(1)` 即可（等价于 `git revert HEAD`）。
 
 ### 3.2 撤销最近 N 次改动
 
@@ -218,7 +218,7 @@ git tag -d stable-2026-05-30
 ### 4.1 记忆恢复
 
 记忆删除前 7 天内：
-- **她（有希）自己能恢复**：在 UI 里说"恢复刚删的那条" → 她调 `restore_memory`
+- **她（私人助手）自己能恢复**：在 UI 里说"恢复刚删的那条" → 她调 `restore_memory`
 - **你手动**：
 
 ```powershell
@@ -392,14 +392,14 @@ git fetch origin
 git reset --hard origin/main
 ```
 
-### 场景 F：她改坏了 prompts/yuki.md（人设）
+### 场景 F：她改坏了 prompts/assistant.md（人设）
 
 ```powershell
-# 看 yuki.md 的改动历史
-git log -p --follow prompts/yuki.md
+# 看 assistant.md 的改动历史
+git log -p --follow prompts/assistant.md
 
 # 回到某个版本
-git show <hash>:prompts/yuki.md > prompts/yuki.md
+git show <hash>:prompts/assistant.md > prompts/assistant.md
 
 # 或者直接 revert 那次改动
 git revert <hash>
@@ -488,7 +488,7 @@ E:\AI-Agent\                       # 项目根
 │
 ├── ai_agent\                      # 框架核心（self_edit 可改）
 ├── tools\                         # 工具实现（self_edit 可改）
-├── prompts\                       # system.md / yuki.md（self_edit 可改）
+├── prompts\                       # system.md / assistant.md（self_edit 可改）
 ├── templates\                     # 前端 HTML（self_edit 可改）
 └── static\                        # 前端 CSS（self_edit 可改）
 ```

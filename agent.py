@@ -2,7 +2,7 @@
 
 职责：
 - 加载持久化技能 + 注册所有内置工具（``import tools`` 触发）
-- 拼装最终 SYSTEM_PROMPT（角色卡 prompts/yuki.md + 技术约束 prompts/system.md）
+- 拼装最终 SYSTEM_PROMPT（角色卡 prompts/assistant.md + 技术约束 prompts/system.md）
 - 提供 ``create_agent(model)`` 工厂
 - 提供 ``__main__`` 终端 CLI
 
@@ -32,9 +32,9 @@ load_dotenv()
 
 
 def _load_persona() -> str:
-    """加载角色卡（prompts/yuki.md），找不到时返回空字符串（降级到纯技术 prompt）。"""
+    """加载角色卡（prompts/assistant.md），找不到时返回空字符串（降级到纯技术 prompt）。"""
     try:
-        return (PROMPTS_DIR / "yuki.md").read_text(encoding="utf-8").strip()
+        return (PROMPTS_DIR / "assistant.md").read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return ""
 
@@ -47,7 +47,7 @@ def _load_system_prompt() -> str:
 def _format_approved_sub_summaries() -> str:
     """读所有 ``summary_approved_for_master=True`` 的子对话摘要拼成 prompt 段。
 
-    仅 master 对话注入这个块（让有希持续看到所有已批准的子对话上下文）。
+    仅 master 对话注入这个块（让私人助手持续看到所有已批准的子对话上下文）。
     """
     import json
     from paths import META_DIR
