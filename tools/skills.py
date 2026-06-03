@@ -109,7 +109,7 @@ _load_all_skills()
 def format_skills_for_prompt() -> str:
     """生成"你已有的自定义技能"段落，附到 SYSTEM_PROMPT 末尾。
 
-    让私人助手在每次新对话开始时就能"看到"自己有什么技能，不必先调 list_skills。
+    让有希在每次新对话开始时就能"看到"自己有什么技能，不必先调 list_skills。
     无技能时返回空字符串。
     """
     if not SKILLS_DIR.exists():

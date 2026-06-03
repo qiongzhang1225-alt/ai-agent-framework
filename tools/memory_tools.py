@@ -37,7 +37,7 @@ def remember(fact: str, category: str = "other", importance: int = 5) -> str:
               坏例：「简短」（没主语，检索时模糊）
         category: 记忆分类，三选一：
               - user_profile  用户画像（偏好/习惯/个人信息）
-              - agent_directive  对私人助手的行为指示（"以后用...风格回答"）
+              - agent_directive  对有希的行为指示（"以后用...风格回答"）
               - other  其他（默认）
         importance: 权重 1-10，越大越重要：
               - 9-10  核心人设 / 强行为指令

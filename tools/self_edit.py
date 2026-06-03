@@ -1,4 +1,4 @@
-"""自我修改工具集（self-edit）—— 让私人助手自己优化代码 / prompt。
+"""自我修改工具集（self-edit）—— 让有希自己优化代码 / prompt。
 
 工具集（6 个 @tool + 内部 helpers）：
 
@@ -92,6 +92,34 @@ def _git_bin() -> str:
     if not g:
         raise RuntimeError("找不到 git 可执行文件（请确认 git 已安装且在 PATH 中）")
     return g
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """原子写文件：先写 .tmp，再 rename 覆盖原文件。
+
+    背景：``Path.write_text`` 不是原子写 —— 系统层先 truncate 再 write。
+    如果在写到一半被中断（用户停止流式 / 进程异常 / 中断信号），
+    会留下残缺文件。曾把 server.py 截断到 5 字节"utf-8"几乎丢失。
+
+    原子写保证任何时刻看到的都是"完整旧内容"或"完整新内容"二选一，
+    永不会出现写到一半的状态。
+
+    用 ``with_name`` 而非 ``with_suffix`` 是因为后者只换最后一个扩展名，
+    对 ``server.py`` 这种文件 ``.py + .tmp`` 没问题，但对 ``foo.tar.gz``
+    会变成 ``foo.tar.tmp`` 丢掉 .gz —— with_name 显式 + 后缀更稳。
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)  # POSIX 上 rename 是原子的；Windows 上 Path.replace 等价
+    except Exception:
+        # 清理临时文件，避免在目录里留 .tmp 垃圾
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+        raise
 
 
 def _run_git(args: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -492,7 +520,7 @@ def self_edit_file(
     - 改完简短告诉主人："我改了 X 的 Y 处，commit abc123；重启 server 生效；
       不喜欢可 ``self_rollback(1)`` 或 ``git revert abc123``"
     - **不要连续改同一文件 ≥ 3 次**。改 3 次还不对 → 停下问主人方向
-    - 改 ``prompts/assistant.md``（你的人设核心）需要主人**明确要求**
+    - 改 ``prompts/yuki.md``（你的人设核心）需要主人**明确要求**
 
     Args:
         path: 项目相对路径（如 ``"tools/files.py"``）
@@ -540,10 +568,10 @@ def self_edit_file(
     if count > 1:
         return f"❌ old_string 在 {path} 中出现 {count} 次，必须唯一。请扩展上下文使其唯一"
 
-    # 4. 应用编辑
+    # 4. 应用编辑（原子写，避免中断时残缺）
     new_text = text.replace(old_string, new_string, 1)
     try:
-        abs_path.write_text(new_text, encoding="utf-8")
+        _atomic_write_text(abs_path, new_text)
     except Exception as e:
         return f"❌ 写入失败：{e}"
 
@@ -629,7 +657,7 @@ def self_write_file(
 
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        abs_path.write_text(content, encoding="utf-8")
+        _atomic_write_text(abs_path, content)
     except Exception as e:
         return f"❌ 写入失败：{e}"
 
@@ -639,7 +667,7 @@ def self_write_file(
             # git restore 失败 → 用本地备份回写
             if old_content:
                 try:
-                    abs_path.write_text(old_content, encoding="utf-8")
+                    _atomic_write_text(abs_path, old_content)
                 except Exception:
                     pass
         return f"❌ 改动校验失败：{verify_err}（已撤回）"
@@ -849,10 +877,10 @@ def self_edit_with_test(
     if count > 1:
         return f"❌ old_string 在 {path} 中出现 {count} 次（必须唯一）"
 
-    # 5. 应用编辑
+    # 5. 应用编辑（原子写）
     new_text = text.replace(old_string, new_string, 1)
     try:
-        abs_path.write_text(new_text, encoding="utf-8")
+        _atomic_write_text(abs_path, new_text)
     except Exception as e:
         return f"❌ 写入失败：{e}"
 
@@ -876,7 +904,7 @@ def self_edit_with_test(
         + tc
     )
     try:
-        test_path.write_text(full_test, encoding="utf-8")
+        _atomic_write_text(test_path, full_test)
     except Exception as e:
         _git_restore_path(abs_path)
         return f"❌ 写 test 文件失败：{e}（已 git restore）"

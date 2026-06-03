@@ -28,15 +28,20 @@ from agent import create_agent
 from ai_agent import (
     JSONCheckpoint, Message, message_from_dict, message_to_dict,
 )
-from paths import PROJECT_ROOT
+from paths import (
+    PROJECT_ROOT,
+    ASSETS_DIR,
+    STATIC_DIR,
+    TEMPLATES_DIR,
+)
 
 # ── 配置 ─────────────────────────────────────────────────────────────────────
-
+# 数据目录跟 PROJECT_ROOT（打包模式下 = exe 旁，源码模式下 = 项目根）
+# 资源目录（assets/static/templates）由 paths.py 处理：
+#   - 源码模式：PROJECT_ROOT/{assets,static,templates}
+#   - 打包模式：sys._MEIPASS/{static,templates}，assets 优先 exe 旁
 WORKSPACE_ROOT = PROJECT_ROOT / ".sandbox" / "workspace"
 META_ROOT = PROJECT_ROOT / ".sandbox" / "_meta"
-ASSETS_DIR = PROJECT_ROOT / "assets"
-STATIC_DIR = PROJECT_ROOT / "static"
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
 
 MODELS: dict[str, str] = {
     "deepseek-v4-flash": "DeepSeek V4 Flash",
@@ -50,7 +55,7 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 
 # ── App ──────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="私人助手")
+app = FastAPI(title="信息统合思念体")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
@@ -77,7 +82,7 @@ async def _on_startup_backup():
 
 
 # 启动时兜底 commit working tree（防 self_edit 工具被改坏跳过 commit）。
-# 即便私人助手改了 tools/self_edit.py 让"以后不 commit"，本 hook 仍会兜底落账。
+# 即便有希改了 tools/self_edit.py 让"以后不 commit"，本 hook 仍会兜底落账。
 # 失败永不阻塞启动。
 @app.on_event("startup")
 async def _on_startup_auto_commit():
@@ -142,8 +147,8 @@ def _load_into_globals() -> None:
         conversations[tid] = _ensure_conv_fields(data)
 
 
-MASTER_CONV_ID = "master_assistant"
-MASTER_CONV_NAME = "私人助手"
+MASTER_CONV_ID = "master_yuki"
+MASTER_CONV_NAME = "有希"
 
 
 def new_conversation(
@@ -307,6 +312,17 @@ def _conv_summary(conv: dict) -> dict:
     }
 
 
+@app.get("/api/health")
+async def health() -> dict:
+    """轻量探活端点 —— launcher 的 splash 画面用来判断 server 是否就绪。
+
+    可选 ``?warmed=1`` 参数：要求 chromadb embedding 模型已加载完
+    （懒加载首次访问要 3-5 秒）。launcher 会先调一次预热，再切主界面。
+    """
+    from fastapi import Request
+    return {"ok": True, "convs": len(conversations)}
+
+
 @app.get("/api/conversations")
 async def list_conversations() -> list[dict]:
     # 倒序：最新创建的在前
@@ -378,7 +394,7 @@ async def update_conversation(tid: str, req: UpdateConvRequest) -> dict:
         raise HTTPException(404, "Conversation not found")
     conv = conversations[tid]
     if req.name is not None:
-        # master 不能改名（防止用户误改后找不到"私人助手"）
+        # master 不能改名（防止用户误改后找不到"有希"）
         if conv.get("kind") == "master":
             raise HTTPException(400, "主对话名字固定，不能改")
         conv["name"] = req.name.strip() or "未命名"
@@ -1038,7 +1054,7 @@ async def delete_memory_route(mem_id: str):
 #    memory（category=chat_log）
 # 4) master.messages 砍掉这些已压缩的话题段
 #
-# chat_log 类别在 recall 时默认被过滤（避免污染严肃检索），但是私人助手查
+# chat_log 类别在 recall 时默认被过滤（避免污染严肃检索），但是有希查
 # "我们上次聊到 X" 时显式包含。
 
 

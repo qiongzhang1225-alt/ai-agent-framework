@@ -1,13 +1,13 @@
 """screenshot_and_describe —— UI 类任务的自动反馈闭环工具。
 
 设计动机（来自实际事故）：
-用户让私人助手做白天主题，她改了 23 次 CSS。每次改完她**看不到**实际效果，
+用户让有希做白天主题，她改了 23 次 CSS。每次改完她**看不到**实际效果，
 只能猜，所以反复堆补丁。这工具让她改完一步立刻：
 1. 截当前页面 → workdir/.ui_check/<timestamp>.png
 2. 调 MiMo vision_describe 看截图，对比她的预期
 3. 不符合预期 → 改代码再截图，不需要等主人反馈
 
-依赖 ``playwright`` + chromium。没装时返回明确提示让私人助手调
+依赖 ``playwright`` + chromium。没装时返回明确提示让有希调
 ``request_pip_install`` 求主人安装。
 """
 from __future__ import annotations

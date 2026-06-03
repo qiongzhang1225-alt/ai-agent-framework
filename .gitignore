@@ -1,7 +1,56 @@
+# ── 环境变量与密钥 ────────────────────────────────────────────────────
 .env
-.memory
-.sandbox
-__pycache__
+.env.local
+
+# ── Python ──────────────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
 *.pyc
-.venv
-models/
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# ── 运行时数据（用户私有，不入 git）──────────────────────────────────
+.sandbox/                 # 对话历史 + workspace
+.memory/                  # ChromaDB 向量库
+.skills_trash/            # 删除技能的回收站（7 天）
+.skills_backups/          # 定期备份
+.memory_backups/          # 定期备份
+.execute_trash/           # execute_code 覆盖前的快照（7 天）
+
+# ── launcher 运行时 ─────────────────────────────────────────────────
+.yuki.lock                # 单实例锁
+.yuki-launcher.log        # exe 日志
+
+# ── 备份文件 ────────────────────────────────────────────────────────
+*.bak
+*.bak2
+*.bak3
+conv.json.pre-*.bak       # 主对话压缩前快照
+
+# ── 本地 embedding 模型（390MB，用户自行下载）────────────────────────
+models/*
+!models/README.md
+
+# ── 桌面打包产物 ────────────────────────────────────────────────────
+build/
+dist/
+*.spec.bak
+# build.bat 复制到根目录的运行入口
+/yuki.exe
+/_internal/
+
+# ── IDE / 编辑器 ────────────────────────────────────────────────────
+.idea/
+.vscode/
+.obsidian/
+
+# ── 操作系统垃圾 ────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ── 用户的个人背景图 / 图标（默认带的图保留在 git 里，覆盖时用户自己改）
+# 不忽略 assets/，因为默认带的图属于"开箱即用"内容

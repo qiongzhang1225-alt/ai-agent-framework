@@ -36,7 +36,7 @@ TRASH_KEEP_DAYS = 7
 
 # 记忆分类：
 #   user_profile     - 用户画像（偏好/习惯/个人信息）
-#   agent_directive  - 对私人助手的行为指示
+#   agent_directive  - 对有希的行为指示
 #   other            - 其他跨对话的事实
 #   chat_log         - 主对话压缩后的"对话片段记忆"（默认从 recall 过滤掉，
 #                      避免污染严肃检索；显式查"上次聊到 X" 时才包含）
@@ -44,7 +44,7 @@ VALID_CATEGORIES = ("user_profile", "agent_directive", "other", "chat_log")
 DEFAULT_CATEGORY = "other"
 DEFAULT_IMPORTANCE = 5  # 1-10
 
-# 默认设置：写权限默认关闭（私人助手只能 remember 存新，不能 update/delete 老的）
+# 默认设置：写权限默认关闭（有希只能 remember 存新，不能 update/delete 老的）
 DEFAULT_SETTINGS = {"memory_write_enabled": False}
 
 # 中文优化 embedding：bge-base-zh-v1.5（本地加载，永不联网）
@@ -65,13 +65,10 @@ def _get_embedding_fn():
     global _embedding_fn
     if _embedding_fn is None:
         if not _BGE_MODEL_PATH.exists():
-            # bge 模型不存在时使用 ChromaDB 内置默认 embedding（all-MiniLM-L6-v2）
-            # 如需中文优化，下载 bge-base-zh-v1.5 到 models/bge-base-zh-v1.5/
-            _ensure_hf_mirror()
-            print("[memory] bge 模型不存在，使用 sentence-transformers 默认模型（auto-download）")
-            from chromadb.utils import embedding_functions
-            _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction()
-            return _embedding_fn
+            raise RuntimeError(
+                f"bge embedding 模型不在 {_BGE_MODEL_PATH}。"
+                "请按 models/README.md 手动下载 pytorch_model.bin。"
+            )
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         from chromadb.utils import embedding_functions
@@ -79,18 +76,6 @@ def _get_embedding_fn():
             model_name=str(_BGE_MODEL_PATH)
         )
     return _embedding_fn
-
-
-def _ensure_hf_mirror():
-    """如果 Hugging Face 直连不通，自动切到国内镜像。"""
-    import os as _os, socket as _socket
-    if _os.environ.get("HF_ENDPOINT"):
-        return
-    try:
-        _socket.create_connection(("huggingface.co", 443), timeout=2)
-    except OSError:
-        _os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-        print("[memory] huggingface.co 不可达，自动切换到 hf-mirror.com（国内镜像）")
 
 
 def _get_collection():

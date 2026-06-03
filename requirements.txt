@@ -1,35 +1,39 @@
-# Agent 核心
-httpx>=0.27
-python-dotenv>=1.0
+# Agent 核心（自建框架，无 LangChain 依赖）
+httpx>=0.27           # DeepSeek API 客户端（OpenAI 兼容）
+python-dotenv>=1.0    # .env 加载
 
-# 长期记忆（ChromaDB + 中文 embedding 可选）
+# 长期记忆（向量库 + 中文 embedding）
 chromadb>=1.0
-sentence-transformers>=2.0   # 语义搜索（首次使用自动下载模型）
+sentence-transformers>=5.0   # 加载 bge-base-zh-v1.5（本地路径），见 models/README.md
 
-# Web 服务
+# Web 前端（FastAPI 替代 Streamlit）
 fastapi>=0.115
 uvicorn[standard]>=0.32
 jinja2>=3.1
 sse-starlette>=2.1
 python-multipart>=0.0.9
 
-# 网络请求
+# 已有工具
+ddgs>=9.14            # DuckDuckGo 搜索（旧名 duckduckgo-search，9.x 起改名）
 requests>=2.31
 beautifulsoup4>=4.12
 
-# 代码感知（tree-sitter 索引）
-# tree-sitter>=0.23          # 如需代码搜索功能，取消注释
-# tree-sitter-python>=0.23
-# tree-sitter-javascript>=0.23
-
-# 办公自动化
+# 办公自动化预装库（execute_code 可直接使用）
 pandas>=2.0
 openpyxl>=3.1
 numpy>=1.24
 matplotlib>=3.7
-Pillow>=10.0
+seaborn>=0.13
 python-docx>=1.1
+python-pptx>=1.0
 pdfplumber>=0.10
+reportlab>=4.0
+Pillow>=10.0
 
-# 杂项
-cryptography>=42.0
+# 桌面应用打包（launcher.py / yuki.spec 用）
+# pywebview: 内嵌系统 webview（Win10+ WebView2 / Mac WKWebView / Linux WebKitGTK）
+# pystray:   跨平台系统托盘
+# pyinstaller: 打包成单 exe（仅打包时需要，运行不需要）
+pywebview>=5.0
+pystray>=0.19
+pyinstaller>=6.0          # 仅打包时用，运行可不装

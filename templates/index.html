@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>私人助手</title>
+  <title>信息统合思念体</title>
   {% if icon_url %}<link rel="icon" href="{{ icon_url }}" />{% endif %}
 
   <!-- Tailwind CDN -->
@@ -38,7 +38,7 @@
   <!-- 主题管理（早期执行，避免首屏闪深色）：localStorage 持久化，独立于 Alpine -->
   <script>
     (function () {
-      const KEY = 'assistant-theme';
+      const KEY = 'yuki-theme';
       const HLJS_DARK  = 'https://cdn.jsdelivr.net/npm/highlight.js@11/styles/atom-one-dark.min.css';
       const HLJS_LIGHT = 'https://cdn.jsdelivr.net/npm/highlight.js@11/styles/atom-one-light.min.css';
       function apply(mode) {
@@ -46,7 +46,7 @@
         const hl = document.getElementById('hljs-theme');
         if (hl) hl.href = mode === 'light' ? HLJS_LIGHT : HLJS_DARK;
       }
-      window._assistantTheme = {
+      window._yukiTheme = {
         get: () => localStorage.getItem(KEY) || 'dark',
         set: (mode) => { localStorage.setItem(KEY, mode); apply(mode); },
         toggle: () => {
@@ -57,20 +57,25 @@
         },
       };
       // 首屏即时应用（body 还没解析，所以 toggle class 等 DOMContentLoaded）
-      if (document.body) apply(window._assistantTheme.get());
-      else document.addEventListener('DOMContentLoaded', () => apply(window._assistantTheme.get()), { once: true });
+      if (document.body) apply(window._yukiTheme.get());
+      else document.addEventListener('DOMContentLoaded', () => apply(window._yukiTheme.get()), { once: true });
     })();
   </script>
 
   {% if background_url %}
   <style>
+    /* 夜晚主题背景图 (assets/background.png, 1260x792, 比 16:9 略窄):
+       cover  → 宽度优先铺满，避免左右出现接缝（之前 repeat 平铺会拼）
+       center → 上下各裁等量，保留画面中央
+       no-repeat → 单张，不平铺
+       white 主题在 static/style.css 用同样策略覆盖 day_bg.png */
     body::before {
       content: '';
       position: fixed; inset: 0;
       background-image: url('{{ background_url }}');
-      background-size: auto;
-      background-repeat: repeat;
-      background-position: top left;
+      background-size: cover;
+      background-repeat: no-repeat;
+      background-position: center;
       background-attachment: fixed;
       z-index: -2;
     }
@@ -98,7 +103,7 @@
       x-transition.opacity
     >
       <div class="px-4 h-16 border-b border-white/10 flex items-center justify-between shrink-0">
-        <h1 class="text-base font-semibold tracking-wider">私人助手</h1>
+        <h1 class="text-base font-semibold tracking-wider">信息统合思念体</h1>
         <button
           @click="sidebarCollapsed = true"
           class="text-zinc-400 hover:text-zinc-100 transition"
@@ -202,7 +207,7 @@
 
       <!-- 对话列表 -->
       <div class="flex-1 overflow-y-auto px-2 pb-4 space-y-1 scrollbar-thin">
-        <!-- 主对话"私人助手"永远顶部，金色高亮 -->
+        <!-- 主对话"有希"永远顶部，金色高亮 -->
         <template x-if="masterConv">
           <div
             class="group flex items-center gap-2 px-2.5 py-2.5 rounded-md cursor-pointer text-sm transition mb-1
@@ -414,7 +419,7 @@
           <template x-if="todos.length === 0">
             <div class="px-4 py-6 text-center text-xs text-zinc-500">
               当前对话没有任务清单<br/>
-              <span class="text-[10px]">复杂任务时私人助手会自己列</span>
+              <span class="text-[10px]">复杂任务时有希会自己列</span>
             </div>
           </template>
           <ol class="py-2">
@@ -741,7 +746,7 @@
             <div class="flex-1 min-w-0 text-xs">
               <div class="text-amber-200 font-medium mb-1">本轮工具调用达到上限</div>
               <div class="text-zinc-300 leading-relaxed" x-text="currentConv?.truncated_reason || '已达 max_iterations 上限'"></div>
-              <div class="text-zinc-400 mt-1.5 text-[11px]">上面的对话已完整保留。点"继续"让私人助手接着干（不会重发任何用户消息），或"放弃"清掉提示。</div>
+              <div class="text-zinc-400 mt-1.5 text-[11px]">上面的对话已完整保留。点"继续"让有希接着干（不会重发任何用户消息），或"放弃"清掉提示。</div>
             </div>
             <div class="flex flex-col gap-1 shrink-0">
               <button
@@ -816,7 +821,7 @@
         <template x-if="tasks.length === 0">
           <div class="px-4 py-6 text-center text-xs text-zinc-500">
             没有后台任务<br/>
-            <span class="text-[10px]">私人助手跑长任务时这里会显示</span>
+            <span class="text-[10px]">有希跑长任务时这里会显示</span>
           </div>
         </template>
         <div class="py-1 space-y-0.5">
@@ -945,7 +950,7 @@
           <button
             @click="$refs.imageInput.click()"
             class="shrink-0 w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white transition rounded-lg"
-            title="贴图给私人助手看（自动用 MiMo 视觉模型）"
+            title="贴图给有希看（自动用 MiMo 视觉模型）"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -1014,7 +1019,7 @@
       >
         <div class="px-5 py-4 border-b border-white/10 flex items-center gap-3">
           <div class="w-7 h-7 rounded-full bg-primary/40 flex items-center justify-center text-xs">希</div>
-          <div class="text-sm font-medium tracking-wider text-zinc-100">私人助手想确认一下</div>
+          <div class="text-sm font-medium tracking-wider text-zinc-100">有希想确认一下</div>
         </div>
         <div class="px-5 py-4 text-sm text-zinc-100 leading-relaxed whitespace-pre-wrap"
              x-text="askPrompt?.question"></div>
@@ -1149,7 +1154,7 @@
                        focus:outline-none focus:border-primary-light"
               >
                 <option value="user_profile">用户画像</option>
-                <option value="agent_directive">私人助手行为</option>
+                <option value="agent_directive">有希行为</option>
                 <option value="other">其他</option>
               </select>
             </label>
@@ -1254,7 +1259,7 @@
                              focus:outline-none focus:border-primary-light"
                     >
                       <option value="user_profile">用户画像</option>
-                      <option value="agent_directive">私人助手行为</option>
+                      <option value="agent_directive">有希行为</option>
                       <option value="other">其他</option>
                     </select>
                   </label>
@@ -1349,7 +1354,7 @@
         askPrompt: null,      // {id, question, options, groups} 或 null
         askCustomInput: '',
         askGroupAnswers: {},  // 分组模式：{group.label: 选中的 choice}
-        // 主题：仅用于按钮显示，实际状态由全局 _assistantTheme 管理
+        // 主题：仅用于按钮显示，实际状态由全局 _yukiTheme 管理
         theme: 'dark',
         // 已压缩历史折叠卡：哪些展开了 + 拉到的全文缓存
         compressedExpanded: {},
@@ -1366,7 +1371,7 @@
         categoryFilterOptions: [
           { value: 'all', label: '全部' },
           { value: 'user_profile', label: '用户画像' },
-          { value: 'agent_directive', label: '私人助手行为' },
+          { value: 'agent_directive', label: '有希行为' },
           { value: 'other', label: '其他' },
         ],
         editingMemoryId: null,
@@ -1406,12 +1411,12 @@
           // 拉取当前会话的最近文件
           this.loadRecentFiles();
           // 同步主题状态（IIFE 已应用 class，这里只读）
-          this.theme = window._assistantTheme ? window._assistantTheme.get() : 'dark';
+          this.theme = window._yukiTheme ? window._yukiTheme.get() : 'dark';
         },
 
         // ── 主题切换 ──
         toggleTheme() {
-          if (window._assistantTheme) this.theme = window._assistantTheme.toggle();
+          if (window._yukiTheme) this.theme = window._yukiTheme.toggle();
         },
 
         // ── 已压缩历史折叠卡：点击展开/收起，第一次展开时拉全文 ──
@@ -1483,7 +1488,7 @@
         categoryLabel(cat) {
           const map = {
             user_profile: '用户画像',
-            agent_directive: '私人助手行为',
+            agent_directive: '有希行为',
             other: '其他',
           };
           return map[cat || 'other'] || '其他';
@@ -1596,18 +1601,6 @@
             }
           });
 
-          // 全局点击 delegation：复制代码块内容
-          document.addEventListener('click', function(e) {
-            const pre = e.target.closest('pre');
-            if (pre && pre.closest('.prose-msg')) {
-              const code = pre.querySelector('code');
-              if (code) {
-                const text = code.textContent || '';
-                navigator.clipboard.writeText(text).catch(() => {});
-              }
-            }
-          });
-
           // 全局点击 delegation：消息里 [→ name](#sub=id) 形式的链接跳转到对应子对话
           document.addEventListener('click', (e) => {
             const a = e.target.closest('a[href^="#sub="]');
@@ -1636,7 +1629,7 @@
             this.dragHover = false;
             const fl = e.dataTransfer?.files;
             if (!fl || !fl.length) return;
-            // 图片走"贴图给私人助手看"路径（vision_describe），其他走"上传到工作目录"路径
+            // 图片走"贴图给有希看"路径（vision_describe），其他走"上传到工作目录"路径
             const images = [];
             const others = [];
             for (const f of fl) {
@@ -1827,7 +1820,7 @@
         },
 
         async answerAsk(answer) {
-          // 用户回应私人助手的追问。POST 回 server 让工具继续。
+          // 用户回应有希的追问。POST 回 server 让工具继续。
           if (!this.askPrompt) return;
           const askId = this.askPrompt.id;
           const a = String(answer || '').trim();
@@ -1906,7 +1899,7 @@
           this.currentConv.summary_pending_approval = true;
           this.currentConv.summary_approved_for_master = false;
           await this.loadConversations();
-          alert('摘要已生成：\n\n' + data.summary + '\n\n在 header 上点"批准纳入主"让私人助手看到。');
+          alert('摘要已生成：\n\n' + data.summary + '\n\n在 header 上点"批准纳入主"让有希看到。');
         },
 
         async approveSummary(approve) {
@@ -1931,7 +1924,7 @@
           if (kind === 'sub') {
             const master = this.masterConv;
             if (!master) {
-              alert('找不到主对话"私人助手"，无法创建子对话');
+              alert('找不到主对话"有希"，无法创建子对话');
               return;
             }
             body.parent_id = master.id;
@@ -2493,7 +2486,7 @@
         },
 
         handlePaste(e) {
-          // 粘贴剪贴板里的图片 / 文件 —— 图片走"贴图给私人助手看"路径（→ MiMo 识别），
+          // 粘贴剪贴板里的图片 / 文件 —— 图片走"贴图给有希看"路径（→ MiMo 识别），
           // 其他文件走"上传到工作目录"路径
           const fl = e.clipboardData?.files;
           if (!fl || !fl.length) return;
@@ -2660,7 +2653,7 @@
           if (!this.messages.length) return;
           const lines = [`# ${this.currentConv.name}`, ''];
           for (const m of this.messages) {
-            lines.push(m.role === 'user' ? '## 你' : '## 私人助手');
+            lines.push(m.role === 'user' ? '## 你' : '## 有希');
             lines.push('');
             lines.push(m.content);
             lines.push('');
