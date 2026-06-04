@@ -184,22 +184,30 @@ AI 通过 `self_edit` 工具集修改自己：
 │   ├── loop.py          ReAct loop（max 60 轮，撞墙断点续传）
 │   └── persist.py       JSONCheckpoint
 │
-├── tools/               业务工具（20+ 个 @tool）
+├── tools/               业务工具（50+ 个 @tool）
+│   ├── basic.py         计算 / 时间 / 简单搜索
 │   ├── execute.py       Python 沙箱
-│   ├── shell.py         系统命令白名单
-│   ├── files.py         文件读写编辑
+│   ├── shell.py         系统命令白名单（支持 cwd 子目录）
+│   ├── files.py         文件读写编辑（含行级切片 offset/limit）
+│   ├── coding.py        代码质量门禁（lint / format_code / run_tests
+│   │                    / apply_patch / find_references / smoke_test）
+│   ├── code_indexer.py  tree-sitter 符号索引（code_search / outline
+│   │                    / references / dependencies，比 grep 准）
 │   ├── memory_tools.py  长期记忆 CRUD
-│   ├── dialog.py        ask_user 弹窗（options / groups 双模式）
+│   ├── dialog.py        ask_user 弹窗 + audit_stats 自查
 │   ├── vision.py        MiMo 视觉
-│   ├── self_edit.py     自我修改
+│   ├── self_edit.py     自我修改（含每 20 次 commit 后自查提示）
 │   ├── plan.py          复杂任务规划
 │   ├── verify.py        变更断言
 │   ├── postmortem.py    任务复盘
 │   ├── spawn_sub.py     主对话开子对话
+│   ├── sub_complete.py  子对话结束给主对话留摘要
 │   ├── ui_check.py      UI 自检（截图 + 视觉描述）
 │   ├── skills.py        持久化技能（define_skill）
 │   ├── todo.py          任务清单
-│   └── ...
+│   ├── venv_install.py  装包到工作区 .venv
+│   ├── aggregate_search.py  多引擎聚合搜索
+│   └── changelog.py     git log 重建 CHANGELOG.md
 │
 ├── prompts/
 │   ├── yuki.md          角色卡（默认有希，改这个换角色）
