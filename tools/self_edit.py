@@ -595,6 +595,13 @@ def self_edit_file(
             f"主人重启 server 时会自动兜底 commit（auto_commit_pending）"
         )
 
+    # 7. 增量更新代码索引（让 code_search / code_outline / find_references 立即看到新代码）
+    try:
+        from tools.code_indexer import get_indexer
+        get_indexer().update_file(str(PROJECT_ROOT), rel)
+    except Exception:
+        pass  # 索引失败不阻塞 commit
+
     r = _run_git(["rev-parse", "--short", "HEAD"])
     new_hash = r.stdout.strip() if r.returncode == 0 else "<unknown>"
 
@@ -678,6 +685,13 @@ def self_write_file(
     r = _run_git(["commit", "-m", commit_msg])
     if r.returncode != 0:
         return f"⚠️ 已写入但 commit 失败：{r.stderr[:200]}"
+
+    # 增量更新代码索引（同 self_edit_file）
+    try:
+        from tools.code_indexer import get_indexer
+        get_indexer().update_file(str(PROJECT_ROOT), rel)
+    except Exception:
+        pass
 
     r = _run_git(["rev-parse", "--short", "HEAD"])
     new_hash = r.stdout.strip() if r.returncode == 0 else "<unknown>"

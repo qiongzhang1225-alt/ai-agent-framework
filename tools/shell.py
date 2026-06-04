@@ -209,11 +209,35 @@ def _truncate_output(s: str) -> str:
     return truncated + f"\n...(已截断，原 {len(b)/1024:.0f} KB)"
 
 
+def _resolve_subdir_cwd(workdir: Path, cwd: str) -> Path | str:
+    """解析 cwd 参数为绝对路径，越界返回错误字符串。
+
+    - 空 / None  → workdir 本身
+    - 相对路径   → workdir / cwd
+    - 绝对路径   → 必须仍在 workdir 内
+    - 不存在 / 非目录 → 错误字符串
+    """
+    if not cwd or not str(cwd).strip():
+        return workdir
+    p = Path(cwd)
+    if not p.is_absolute():
+        p = workdir / p
+    try:
+        p = p.resolve()
+        p.relative_to(workdir)  # 越界 → ValueError
+    except (ValueError, OSError):
+        return f"cwd {cwd!r} 越出工作目录（{workdir}）"
+    if not p.is_dir():
+        return f"cwd {cwd!r} 不是目录（解析后: {p}）"
+    return p
+
+
 @tool
 def run_command(
     cmd: str,
     args: list[str],
     config: dict,
+    cwd: str = "",
     timeout: int = 0,
 ) -> str:
     """运行白名单内的系统命令。当 ``execute_code`` 不够直接时（外部 CLI、装包、
@@ -266,6 +290,9 @@ def run_command(
     参数：
         cmd: 命令名（必须 ∈ 上述命令列表）
         args: 参数列表（不要把命令名拼进来）
+        cwd: 子目录路径（相对工作目录或绝对，必须在工作目录内）。
+             例: ``cwd="desktop/src-tauri"`` 跑 ``cargo build`` 时进入该子目录。
+             默认空 = 用 workdir 根。
         timeout: 超时秒数。0（默认）= 60s；最大 600s
 
     返回：执行状态 + stdout + stderr 文本。
@@ -293,16 +320,19 @@ def run_command(
     if err:
         return f"参数校验失败：{err}"
 
-    # L3: 强制 cwd = workdir
+    # L3: cwd 解析（默认 workdir 根，cwd 参数支持子目录但不允许越界）
     cfg = (config or {}).get("configurable", {}) if config else {}
     workdir = Path(cfg.get("workdir") or str(DEFAULT_WORKDIR)).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
+    resolved_cwd = _resolve_subdir_cwd(workdir, cwd)
+    if isinstance(resolved_cwd, str):
+        return f"参数校验失败：{resolved_cwd}"
 
     # L4: 资源限制 + 启动
     try:
         result = subprocess.run(
             [cmd, *args],
-            cwd=str(workdir),
+            cwd=str(resolved_cwd),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -436,6 +466,7 @@ async def run_command_stream(
     cmd: str,
     args: list[str],
     config: dict,
+    cwd: str = "",
     task_id: str = "",
     timeout: int = 0,
     background: bool = False,
@@ -455,6 +486,9 @@ async def run_command_stream(
     参数：
         cmd: 命令名（必须在白名单内）
         args: 参数列表
+        cwd: 子目录路径（相对工作目录或绝对，必须在工作目录内）。
+             例: ``cwd="desktop/src-tauri"`` 跑 ``cargo build``。
+             默认空 = workdir 根。
         task_id: 任务标识（用于取消），不传时自动生成
         timeout: 超时秒数。0（默认）= 60s；最大 600s
         background: 是否后台运行（独立于 SSE，关页面不断连）
@@ -480,10 +514,14 @@ async def run_command_stream(
     if err:
         return f"参数校验失败：{err}"
 
-    # L3: workdir
+    # L3: cwd 解析（支持子目录，不允许越界）
     cfg_configurable = (config or {}).get("configurable", {}) if config else {}
     workdir = Path(cfg_configurable.get("workdir") or str(DEFAULT_WORKDIR)).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
+    resolved_cwd = _resolve_subdir_cwd(workdir, cwd)
+    if isinstance(resolved_cwd, str):
+        return f"参数校验失败：{resolved_cwd}"
+    workdir = resolved_cwd  # 后续代码用 workdir 变量，覆盖即可
 
     # L4: task_id + emitter
     import uuid

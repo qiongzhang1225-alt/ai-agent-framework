@@ -536,6 +536,7 @@ def main() -> int:
             height=900,
             min_size=(1000, 700),
             background_color="#08080f",
+            text_select=True,    # 允许在 webview 里选中复制文本（默认 False = 禁止选中）
         )
         _window_ref = window
 

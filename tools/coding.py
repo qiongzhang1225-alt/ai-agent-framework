@@ -96,28 +96,104 @@ def _have_module(module_name: str) -> bool:
 # ── 1. lint ─────────────────────────────────────────────────────────────
 
 
+def _run_mypy(py: str, target_paths: list[str], workdir: Path) -> str:
+    """跑 mypy 类型检查（非 strict，--ignore-missing-imports）。
+
+    设计取舍：
+    - 不开 --strict —— 项目里很多函数没全注解，strict 会爆出几百条噪音
+    - --ignore-missing-imports —— 第三方库（chromadb / tree_sitter 等）多无 stub
+    - 只保留 error 级别（warning / note 在非 strict 下意义不大）
+    - 最多展示 30 条
+    """
+    if not _have_module("mypy"):
+        return (
+            "ℹ️ mypy 未安装，跳过类型检查\n"
+            "  装一下: pip install mypy（或 run_command('pip', ['install', 'mypy'])）"
+        )
+
+    cmd = [
+        py, "-m", "mypy",
+        "--ignore-missing-imports",
+        "--no-error-summary",
+        "--show-error-codes",
+        "--no-color-output",
+        *target_paths,
+    ]
+    try:
+        r = subprocess.run(
+            cmd, cwd=str(workdir),
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=_RUN_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return f"❌ mypy 超时 ({_RUN_TIMEOUT}s)"
+    except Exception as e:
+        return f"❌ mypy 启动失败: {e}"
+
+    out = (r.stdout or "").strip()
+    # mypy returncode: 0 = 无错；非 0 = 有错。stderr 偶有"启动信息"，正常忽略。
+    if not out and r.returncode == 0:
+        return "✓ mypy: 无类型错误"
+    if not out:
+        # 没输出但 returncode 非 0 —— 比如所有 paths 都被 ignore
+        return f"ℹ️ mypy: 无可检查文件（returncode={r.returncode}）"
+
+    # 解析 "file:line: error: msg  [error-code]"
+    err_entries: list[str] = []
+    for line in out.splitlines():
+        if ": error:" not in line:
+            continue
+        m = re.match(r"^(.+?):(\d+):(?:\d+:)?\s*error:\s*(.+?)(?:\s+\[([\w-]+)\])?$", line)
+        if m:
+            fname, lno, msg, code = m.group(1), m.group(2), m.group(3), m.group(4) or "?"
+            try:
+                fname = str(Path(fname).relative_to(workdir))
+            except (ValueError, OSError):
+                pass
+            err_entries.append(f"  {fname}:{lno}  [{code}] {msg}")
+        else:
+            err_entries.append(f"  {line}")
+
+    if not err_entries:
+        return "✓ mypy: 无类型错误"
+
+    head = f"⚠️ mypy 发现 {len(err_entries)} 个类型问题（非 strict 模式）"
+    if len(err_entries) > 30:
+        return head + ":\n" + "\n".join(err_entries[:30]) + f"\n  ...(还有 {len(err_entries) - 30} 条)"
+    return head + ":\n" + "\n".join(err_entries)
+
+
 @tool
 def lint(
     paths: list = None,
     fix: bool = False,
+    type_check: bool = False,
     config: dict = None,
 ) -> str:
-    """跑 ruff 静态检查，找出未用变量 / 语法错 / import 顺序等问题。
+    """跑 ruff 静态检查（可选叠加 mypy 类型检查）。
 
-    ``fix=True`` 时自动修可修复的（如未用 import、import 排序）。
+    ``fix=True`` 时自动修可修复的（未用 import、import 排序等）。
+    ``type_check=True`` 时**额外**跑一遍 mypy（非 strict，--ignore-missing-imports）。
 
     什么时候用：
     - 改完 .py 文件后立刻自检
     - 主人说"看看代码有什么问题"
     - 提交前过一遍
 
+    什么时候开 ``type_check=True``：
+    - 改了涉及类型的关键代码（函数签名 / Optional / 返回值）
+    - 主人说"查下类型有没有错"
+    - **不建议每次都开** —— mypy 比 ruff 慢，且非 strict 下漏检也多
+
     Args:
         paths: 要检查的路径列表（相对工作目录或绝对路径）。
                默认 ``["."]``（整个工作目录递归）。
-        fix: True 则自动修复可自动修的问题；False 仅报告。
+        fix: True 则自动修可自动修的问题；False 仅报告。
+        type_check: True 则在 ruff 之后再跑 mypy（默认 False）。
 
-    返回：摘要 + 每条问题（文件:行:列 错误码 描述）。无问题时返回 "✓ 无问题"。
+    返回：ruff 结果（+ 可选 mypy 结果）。
     依赖 ruff：未装时返回提示 + pip install 命令。
+    type_check=True 但 mypy 未装时不报错，给安装提示后继续。
     """
     workdir = _resolve_workdir(config)
     target_paths = _resolve_paths(paths, workdir)
@@ -153,37 +229,45 @@ def lint(
     except json.JSONDecodeError:
         return f"❌ ruff 输出解析失败:\n{_truncate(r.stdout, 1000)}\nstderr:\n{_truncate(r.stderr, 500)}"
 
+    # 构造 ruff 结果字符串
     if not issues:
-        return "✓ 无问题"
+        ruff_result = "✓ ruff: 无问题"
+    else:
+        by_code: dict[str, int] = {}
+        for it in issues:
+            code = it.get("code", "?")
+            by_code[code] = by_code.get(code, 0) + 1
+        summary = ", ".join(f"{c}: {n}" for c, n in sorted(by_code.items(), key=lambda x: -x[1]))
 
-    # 摘要 + 详情（最多 30 条）
-    by_code: dict[str, int] = {}
-    for it in issues:
-        code = it.get("code", "?")
-        by_code[code] = by_code.get(code, 0) + 1
-    summary = ", ".join(f"{c}: {n}" for c, n in sorted(by_code.items(), key=lambda x: -x[1]))
+        lines = [
+            f"⚠️ ruff 发现 {len(issues)} 个问题（按错误码: {summary}）"
+            + ("  [已自动修复部分]" if fix else ""),
+            "",
+        ]
+        for it in issues[:30]:
+            fname = it.get("filename", "?")
+            try:
+                fname = str(Path(fname).relative_to(workdir))
+            except (ValueError, OSError):
+                pass
+            loc = it.get("location") or {}
+            row = loc.get("row", "?")
+            col = loc.get("column", "?")
+            code = it.get("code", "?")
+            msg = it.get("message", "")
+            lines.append(f"  {fname}:{row}:{col}  [{code}] {msg}")
+        if len(issues) > 30:
+            lines.append(f"  ...(还有 {len(issues) - 30} 条)")
+        ruff_result = "\n".join(lines)
 
-    lines = [
-        f"⚠️ ruff 发现 {len(issues)} 个问题（按错误码: {summary}）"
-        + ("  [已自动修复部分]" if fix else ""),
-        "",
-    ]
-    for it in issues[:30]:
-        fname = it.get("filename", "?")
-        try:
-            fname = str(Path(fname).relative_to(workdir))
-        except (ValueError, OSError):
-            pass
-        loc = it.get("location") or {}
-        row = loc.get("row", "?")
-        col = loc.get("column", "?")
-        code = it.get("code", "?")
-        msg = it.get("message", "")
-        lines.append(f"  {fname}:{row}:{col}  [{code}] {msg}")
-    if len(issues) > 30:
-        lines.append(f"  ...(还有 {len(issues) - 30} 条)")
+    # 不开 type_check → 保持原行为
+    if not type_check:
+        # 完全没问题时仍返回"✓ 无问题"（向后兼容）
+        return "✓ 无问题" if not issues else ruff_result
 
-    return "\n".join(lines)
+    # 开 type_check → 追加 mypy 段
+    mypy_result = _run_mypy(py, target_paths, workdir)
+    return ruff_result + "\n\n" + mypy_result
 
 
 # ── 2. format_code ──────────────────────────────────────────────────────

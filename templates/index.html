@@ -2611,8 +2611,17 @@
           // 子对话跳转链接格式 [→ name](#sub=id) —— marked 直接生成标准 anchor，
           // 不需要预处理。CSS 用 a[href^="#sub="] 选择器渲染成 chip；
           // 全局 click delegation 拦截这些 href 转 selectConversation。
-          const html = marked.parse(text);
-          return DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+          let html = marked.parse(text);
+          // 给每个代码块 <pre> 内注入一个可点击的复制按钮（伪元素无法接收点击事件）
+          // 按钮 onclick 调全局 __yukiCopyCode（在尾部 <script> 里定义）
+          html = html.replace(
+            /<pre><code/g,
+            '<pre><button class="code-copy-btn" type="button" onclick="window.__yukiCopyCode(this)">⧉ 复制</button><code'
+          );
+          return DOMPurify.sanitize(html, {
+            ADD_ATTR: ['target', 'onclick', 'type'],
+            ADD_TAGS: ['button'],
+          });
         },
 
         // ── 工具 ──
@@ -2941,6 +2950,48 @@
         },
       };
     }
+  </script>
+
+  <!-- 代码块复制按钮全局 handler（renderMarkdown 注入的 button onclick 调这个） -->
+  <script>
+    window.__yukiCopyCode = function (btn) {
+      if (!btn) return;
+      const pre = btn.closest('pre');
+      if (!pre) return;
+      const code = pre.querySelector('code');
+      const text = code ? code.textContent : pre.textContent.replace(/⧉ 复制\s*/, '');
+      const ok = () => {
+        const orig = btn.textContent;
+        btn.textContent = '✓ 已复制';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.classList.remove('copied');
+        }, 1500);
+      };
+      const fail = (err) => {
+        console.warn('copy failed:', err);
+        btn.textContent = '✗ 失败';
+        setTimeout(() => { btn.textContent = '⧉ 复制'; }, 1500);
+      };
+      // 优先用 clipboard API；不支持时用旧的 execCommand 兜底
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fail);
+      } else {
+        // 旧 webview / 没 https / 没 clipboard 权限时
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const success = document.execCommand('copy');
+          ta.remove();
+          success ? ok() : fail('execCommand returned false');
+        } catch (e) { fail(e); }
+      }
+    };
   </script>
 
 </body>

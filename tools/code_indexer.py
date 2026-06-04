@@ -184,6 +184,52 @@ class CodeIndexer:
         self._caches.pop(path, None)
         self._ensure_index(path, "python")
 
+    def update_file(self, root: str, relpath: str) -> None:
+        """单文件增量更新索引（self_edit 改完 .py / .js 后调用）。
+
+        比 ``refresh()`` 便宜很多 —— 只重新索引一个文件，不动其他符号。
+
+        Args:
+            root: 索引根目录（绝对路径，一般传 PROJECT_ROOT）
+            relpath: 文件相对 root 的路径，POSIX 或 OS-native 都接受
+
+        行为：
+        - root 未被索引过 → 静默跳过（不主动全量索引，等下次 search 触发）
+        - 文件已删 → 从缓存清掉这一文件的所有符号 / outline / call_graph
+        - 文件存在且类型为 .py/.js/.jsx → 重新索引该文件
+        - 其他扩展名 → 跳过
+        - 任何异常都吞掉（索引失败不应阻塞主流程）
+        """
+        try:
+            root = str(Path(root).resolve())
+            # 标准化为 OS-native（与 _collect_files 用的 os.path.relpath 一致）
+            relpath = os.path.normpath(relpath)
+
+            cache = self._caches.get(root)
+            if cache is None:
+                return  # 还没建过索引，下次 search/outline 会全量
+
+            ext = os.path.splitext(relpath)[1].lower()
+            if ext not in (".py", ".js", ".jsx"):
+                return
+
+            full = os.path.join(root, relpath)
+            if not os.path.isfile(full):
+                # 文件被删 → 从缓存移除该文件的所有数据
+                cache.symbols = [s for s in cache.symbols if s.file != relpath]
+                cache.outlines.pop(relpath, None)
+                cache.call_graph.pop(relpath, None)
+                cache.file_hashes.pop(relpath, None)
+                return
+
+            # 重新索引该文件（_index_file 内部会先清掉老数据再 walk）
+            self._index_file(root, relpath, cache)
+            new_hash = self._file_hash(full)
+            if new_hash:
+                cache.file_hashes[relpath] = new_hash
+        except Exception:
+            pass  # 永不上抛
+
     # ── 内部方法 ──────────────────────────────────────────────────────────
 
     def _ensure_index(self, root: str, lang: str) -> IndexCache | None:

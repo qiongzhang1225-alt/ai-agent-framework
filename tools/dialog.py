@@ -241,6 +241,117 @@ def audit_query(
 
 
 @tool
+def audit_stats(
+    last_n: int = 200,
+    config: dict = {},
+) -> str:
+    """统计本对话最近 N 次工具调用的成功率 / 耗时 / 失败 Top。
+
+    用途:
+    - 自我监控: "我最近调啥多 / 哪个工具最常失败"
+    - 主人问"你工具用得效率如何" / "最常踩什么坑"
+    - 决定要不要 self_edit 优化某个工具（持续高失败率 = 该改）
+
+    Args:
+        last_n: 统计最近多少次工具调用（默认 200，最多 1000）。
+
+    返回: 表格化摘要 + Top 5 失败工具。
+    """
+    from audit import read_audit
+
+    cfg = (config or {}).get("configurable", {}) if config else {}
+    thread_id = str(cfg.get("thread_id") or "default")
+    n = max(10, min(int(last_n or 200), 1000))
+    raw = read_audit(thread_id, limit=n * 4)  # before+after 配对 → 多读些
+
+    # 按 tool_call_id 配对
+    pairs: dict[str, dict] = {}
+    order: list[str] = []
+    for r in raw:
+        tcid = r.get("tool_call_id") or f"_no_id_{len(order)}"
+        if tcid not in pairs:
+            pairs[tcid] = {}
+            order.append(tcid)
+        phase = r.get("phase")
+        if phase in ("before", "after"):
+            pairs[tcid][phase] = r
+
+    order = order[-n:]
+    if not order:
+        return "(本对话还没有审计记录)"
+
+    # 按工具聚合
+    by_tool: dict[str, dict] = {}
+    total = 0
+    total_ok = 0
+    total_ms = 0
+    completed = 0
+    for tcid in order:
+        pair = pairs[tcid]
+        b = pair.get("before") or {}
+        a = pair.get("after") or {}
+        tool = b.get("tool") or a.get("tool") or "?"
+        if tool not in by_tool:
+            by_tool[tool] = {"calls": 0, "ok": 0, "ms_sum": 0, "ms_n": 0, "fail_examples": []}
+        st = by_tool[tool]
+        st["calls"] += 1
+        total += 1
+        if a:  # 有 after 算"完成"
+            completed += 1
+            if a.get("ok"):
+                st["ok"] += 1
+                total_ok += 1
+            else:
+                # 记一个失败示例
+                if len(st["fail_examples"]) < 3:
+                    preview = (a.get("result_preview") or "").replace("\n", " ")[:80]
+                    st["fail_examples"].append(preview)
+            ms = a.get("duration_ms")
+            if isinstance(ms, (int, float)) and ms > 0:
+                st["ms_sum"] += ms
+                st["ms_n"] += 1
+                total_ms += ms
+
+    # 输出
+    lines = [
+        f"📊 工具调用统计 (最近 {len(order)} 次, 已完成 {completed})",
+        "",
+        f"总成功率: {total_ok}/{completed} = {total_ok*100/max(completed,1):.0f}%",
+        f"总耗时: {total_ms/1000:.1f}s | 平均: {total_ms/max(completed,1):.0f}ms/次",
+        "",
+        "按工具：",
+        f"{'工具':<25} {'调用':>5} {'成功率':>8} {'平均耗时':>10}",
+        "─" * 55,
+    ]
+    # 按调用次数倒排
+    sorted_tools = sorted(by_tool.items(), key=lambda kv: -kv[1]["calls"])
+    for tool, st in sorted_tools[:15]:
+        rate = st["ok"] / max(st["calls"], 1) * 100
+        avg_ms = st["ms_sum"] / max(st["ms_n"], 1)
+        emoji = "✓" if rate >= 90 else "⚠" if rate >= 70 else "✗"
+        lines.append(
+            f"{tool:<25} {st['calls']:>5} {emoji} {rate:>5.0f}%  {avg_ms:>7.0f}ms"
+        )
+
+    # Top 失败工具
+    failing = [
+        (tool, st) for tool, st in by_tool.items()
+        if st["calls"] - st["ok"] > 0
+    ]
+    failing.sort(key=lambda kv: -(kv[1]["calls"] - kv[1]["ok"]))
+    if failing:
+        lines.append("")
+        lines.append(f"Top 失败工具:")
+        for tool, st in failing[:5]:
+            fails = st["calls"] - st["ok"]
+            lines.append(f"  ✗ {tool}: 失败 {fails}/{st['calls']}")
+            for ex in st["fail_examples"][:2]:
+                lines.append(f"     · {ex}")
+
+    return "\n".join(lines)
+
+
+@tool
 async def ask_user(
     question: str,
     options: list[str] = None,

@@ -27,4 +27,6 @@ from . import plan           # noqa: F401  - plan_task 复杂任务先想再做�
 from . import verify         # noqa: F401  - verify_change 改完断言关键 pattern（1 个）
 from . import postmortem     # noqa: F401  - write_postmortem 任务复盘 + 自动 inject（1 个）
 from . import coding         # noqa: F401  - lint / format / run_tests / apply_patch / find_references（5 个）
+from . import sub_complete   # noqa: F401  - complete_sub_conversation（1 个，sub 给主对话留摘要）
+from . import changelog      # noqa: F401  - regenerate_changelog（1 个，从 git log 重建 CHANGELOG.md）
 from . import aggregate_search  # noqa: F401  - aggregate_search 多引擎聚合搜索（1 个）

@@ -226,6 +226,30 @@ _load_into_globals()
 ensure_master_conversation()
 
 
+# ── 后台预热代码索引（不阻塞启动）────────────────────────────────────────
+# yuki 调 code_search / code_outline 等工具时不用等数秒首次索引
+# 失败不致命（tree-sitter 解析异常等），yuki 首次调时还会触发
+def _warmup_code_index():
+    try:
+        import threading
+        from tools.code_indexer import get_indexer
+
+        def _do_warmup():
+            try:
+                get_indexer().refresh(str(PROJECT_ROOT))
+            except Exception as e:
+                print(f"[code_indexer 预热失败（不影响功能）] {e}")
+
+        threading.Thread(
+            target=_do_warmup, daemon=True, name="code_index_warmup"
+        ).start()
+    except Exception as e:
+        print(f"[code_indexer 启动跳过] {e}")
+
+
+_warmup_code_index()
+
+
 # ── 工作目录文件过滤（防 venv / node_modules / 缓存等淹没列表）────────────
 # 目录黑名单：遇到这些名字的子目录整个跳过递归
 _EXCLUDE_DIRS = frozenset({

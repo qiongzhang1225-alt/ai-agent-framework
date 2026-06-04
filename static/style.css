@@ -126,22 +126,41 @@ a[href^="#sub="]:active {
   font-family: 'JetBrains Mono', 'Consolas', monospace;
 }
 
-/* 代码块复制按钮（伪元素 hack 无法做交互，所以用 JS 委托） */
-.prose-msg pre::before {
-  content: '⧉ 复制';
+/* 代码块右上角复制按钮（真 DOM 按钮，可点击） */
+.prose-msg pre {
+  position: relative;
+}
+.prose-msg .code-copy-btn {
   position: absolute;
-  top: 6px; right: 8px;
+  top: 6px;
+  right: 8px;
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.4);
-  background: rgba(0, 0, 0, 0.4);
-  padding: 2px 8px;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.45);
+  padding: 3px 8px;
   border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s;
-  pointer-events: none;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  font-family: inherit;
+  line-height: 1;
+  user-select: none;
 }
-.prose-msg pre:hover::before { opacity: 1; }
+.prose-msg pre:hover .code-copy-btn {
+  opacity: 1;
+}
+.prose-msg .code-copy-btn:hover {
+  color: rgb(255, 255, 255);
+  background: rgba(0, 0, 0, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.prose-msg .code-copy-btn.copied {
+  color: rgb(110, 231, 183);   /* 复制成功 1.5s 内的视觉反馈 */
+  background: rgba(16, 50, 35, 0.7);
+  border-color: rgba(110, 231, 183, 0.4);
+  opacity: 1;
+}
 
 /* === 雪花动画 === */
 .snow-layer {
@@ -441,9 +460,14 @@ body.theme-light .prose-msg pre {
 body.theme-light .prose-msg pre code {
   color: #F4EBD8;
 }
-body.theme-light .prose-msg pre::before {
-  color: rgba(255, 240, 220, 0.55);
+body.theme-light .prose-msg .code-copy-btn {
+  color: rgba(255, 240, 220, 0.6);
   background: rgba(80, 65, 50, 0.7);
+  border-color: rgba(255, 240, 220, 0.15);
+}
+body.theme-light .prose-msg .code-copy-btn:hover {
+  color: rgb(255, 255, 255);
+  background: rgba(80, 65, 50, 0.9);
 }
 body.theme-light .prose-msg th,
 body.theme-light .prose-msg td {

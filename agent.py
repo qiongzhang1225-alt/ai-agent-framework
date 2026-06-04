@@ -110,16 +110,19 @@ def _full_prompt(conv: dict | None = None) -> str:
     from tools.skills import format_skills_for_prompt
     from tools.self_edit import format_rollback_warnings_for_prompt
     from tools.postmortem import format_postmortems_for_prompt
+    from tools.sub_complete import format_recent_sub_completions_for_prompt
 
     persona = _load_persona()
     system = _load_system_prompt()
     skills_block = format_skills_for_prompt()
     rollback_block = format_rollback_warnings_for_prompt()
 
-    # 仅 master 对话注入子摘要
+    # 仅 master 对话注入两类子对话上下文
     sub_summary_block = ""
+    sub_completion_block = ""
     if conv and conv.get("kind") == "master":
         sub_summary_block = _format_approved_sub_summaries()
+        sub_completion_block = format_recent_sub_completions_for_prompt(limit=5)
 
     # 本对话历史复盘（per-thread postmortem）
     postmortem_block = ""
@@ -136,6 +139,8 @@ def _full_prompt(conv: dict | None = None) -> str:
         parts.append(rollback_block)
     if sub_summary_block:
         parts.append(sub_summary_block)
+    if sub_completion_block:
+        parts.append(sub_completion_block)
     if postmortem_block:
         parts.append(postmortem_block)
     return "\n\n---\n\n".join(parts)
