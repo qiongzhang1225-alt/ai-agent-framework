@@ -342,6 +342,20 @@ def delete_memory(mem_id: str, _action: str = "forget") -> None:
     coll.delete(ids=[mem_id])
 
 
+def get_important_memories(min_importance: int = 9, limit: int = 5) -> list[dict]:
+    """按 importance 降序取全局记忆（过滤 chat_log）。
+
+    用于 agent.py _full_prompt 自动注入"全局必读"段。
+    """
+    all_items = list_memories(limit=9999)
+    filtered = [m for m in all_items if m["importance"] >= min_importance]
+    # 截断文本避免 prompt 膨胀
+    for m in filtered:
+        if len(m["text"]) > 150:
+            m["text"] = m["text"][:147] + "..."
+    return filtered[:limit]
+
+
 def count_memories() -> int:
     return _get_collection().count()
 

@@ -124,6 +124,21 @@ def _full_prompt(conv: dict | None = None) -> str:
         sub_summary_block = _format_approved_sub_summaries()
         sub_completion_block = format_recent_sub_completions_for_prompt(limit=5)
 
+    # 全局必读记忆（importance >= 9，跨对话自动注入）
+    important_memories_block = ""
+    try:
+        from memory import get_important_memories
+        imps = get_important_memories(min_importance=9, limit=5)
+        if imps:
+            lines = ["【全局必读记忆】", "以下是高优先级记忆（importance >= 9），每次对话自动注入："]
+            for i, m in enumerate(imps, 1):
+                cat_label = {"agent_directive": "行为指示", "user_profile": "用户偏好"}.get(m["category"], m["category"])
+                lines.append(f"\n{i}. [{cat_label}]({m['importance']}/10)")
+                lines.append(f"   {m['text']}")
+            important_memories_block = "\n".join(lines)
+    except Exception:
+        pass  # 不影响主流程
+
     # 本对话历史复盘（per-thread postmortem）
     postmortem_block = ""
     if conv and conv.get("id"):
@@ -141,6 +156,8 @@ def _full_prompt(conv: dict | None = None) -> str:
         parts.append(sub_summary_block)
     if sub_completion_block:
         parts.append(sub_completion_block)
+    if important_memories_block:
+        parts.append(important_memories_block)
     if postmortem_block:
         parts.append(postmortem_block)
     return "\n\n---\n\n".join(parts)
