@@ -39,6 +39,35 @@ _MAX_GREP_MATCHES = 50   # grep 返回最多条数
 _MAX_GLOB_MATCHES = 100  # glob 返回最多条数
 
 
+def _slice_text_by_lines(text: str, offset: int, limit: int, max_chars: int) -> str:
+    """按行切片文本，输出带行号（``  123\\t内容``）。
+
+    供 ``read_file`` / ``self_read_file`` 共用。
+
+    Args:
+        text: 原文
+        offset: 1-indexed 起始行（0 视作 1）
+        limit: 最多读多少行（0 = 不限）
+        max_chars: 输出字符上限（超出再截断）
+
+    返回带 "(显示第 N-M 行，共 K 行)" 头部 + cat -n 风格内容。
+    """
+    lines = text.split("\n")
+    total = len(lines)
+    start = max(0, offset - 1) if offset > 0 else 0
+    if start >= total:
+        return f"(offset={offset} 超过文件总行数 {total})"
+    end = start + limit if limit > 0 else total
+    end = min(end, total)
+    sliced = lines[start:end]
+    width = max(len(str(end)), 3)
+    rendered = "\n".join(f"{i + start + 1:>{width}}\t{ln}" for i, ln in enumerate(sliced))
+    header = f"(显示第 {start + 1}-{end} 行，共 {total} 行)\n"
+    if len(rendered) > max_chars:
+        rendered = rendered[:max_chars] + "\n...(单段超长，请调小 limit)"
+    return header + (rendered or "(空切片)")
+
+
 def _next_version_path(target: Path) -> Path:
     """根据 target 文件名找下一个可用的版本号路径。
 
@@ -92,7 +121,7 @@ def _backup_target(target: Path) -> Path:
 # ── read_file ───────────────────────────────────────────────────────────────
 
 @tool
-def read_file(path: str, config: dict) -> str:
+def read_file(path: str, config: dict, offset: int = 0, limit: int = 0) -> str:
     """读取工作目录中的文件，按扩展名自动解析。
 
     支持格式：
@@ -105,8 +134,16 @@ def read_file(path: str, config: dict) -> str:
     所有路径必须在当前会话的工作目录内（绝对路径必须在 workdir 内子路径）。
     超过 8000 字符的内容会被截断（防止 token 浪费）。
 
+    **行切片**（offset / limit）：
+    - 默认 ``offset=0, limit=0`` → 整文件读（保持原行为）
+    - 指定后只读指定行段，输出带行号（``  123\\t内容``），方便后续 edit_file 引用
+    - 仅对**文本类**文件生效；Excel/PDF/Word 走自己的分页逻辑，忽略本参数
+    - 看 2000 行的大文件时，建议先整读拿到总行数提示，再按段 offset/limit 精读
+
     Args:
         path: 文件路径（相对路径相对 workdir，或工作目录内的绝对路径）
+        offset: 从第几行开始读（1-indexed；0 = 从头）
+        limit: 最多读多少行（0 = 不限，仍受 8000 字符上限约束）
     """
     try:
         target = safe_workdir_path(path, config, must_exist=True)
@@ -121,8 +158,17 @@ def read_file(path: str, config: dict) -> str:
     try:
         if ext in _TEXT_EXTS or ext == "":
             text = target.read_text(encoding="utf-8", errors="replace")
+            # 行切片分支（offset / limit 至少一个 > 0）
+            if offset > 0 or limit > 0:
+                return _slice_text_by_lines(text, offset, limit, _MAX_FILE_CHARS)
+            # 默认整文件读
             if len(text) > _MAX_FILE_CHARS:
-                return text[:_MAX_FILE_CHARS] + f"\n\n...(已截断，原文 {len(text)} 字符)"
+                total_lines = text.count("\n") + 1
+                return (
+                    text[:_MAX_FILE_CHARS]
+                    + f"\n\n...(已截断，原文 {len(text)} 字符 / {total_lines} 行)"
+                    f"\n提示: 用 read_file(path, offset=N, limit=M) 按行精读后续部分"
+                )
             return text or "(空文件)"
 
         if ext in (".xlsx", ".xls"):

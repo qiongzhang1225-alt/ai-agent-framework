@@ -435,7 +435,7 @@ def _git_restore_path(path: Path) -> bool:
 
 
 @tool
-def self_read_file(path: str) -> str:
+def self_read_file(path: str, offset: int = 0, limit: int = 0) -> str:
     """读取项目内任意文件（系统代码 / prompt / 文档都行），用于你自己学习 / 优化前预读。
 
     比 ``read_file`` 多出的能力：能读 workdir 外的项目文件（``tools/`` /
@@ -446,6 +446,13 @@ def self_read_file(path: str) -> str:
     - 主人问"你内部是怎么实现的"，可以读完再解释
     - 你想看自己的 SYSTEM_PROMPT 是怎么写的 → ``self_read_file("prompts/system.md")``
 
+    **行切片**（offset / limit）：
+    - 默认 ``offset=0, limit=0`` → 整文件读（保持原行为，最多 30000 字符）
+    - 指定后只读指定行段，输出带行号方便后续 ``self_edit_file`` 精确引用
+    - 看大文件（如 ``tools/self_edit.py`` 800+ 行）推荐：
+      1. 先 ``self_read_file("tools/foo.py")`` 看头部 + 行数提示
+      2. 再 ``self_read_file("tools/foo.py", offset=N, limit=60)`` 精读关键段
+
     路径限制：
     - **可读**项目内任何文件（含 ``ai_agent/`` / ``audit.py`` 等系统代码）
     - **不可读** ``.env`` / ``.env.example``（含密钥）/ ``.git/`` 目录
@@ -453,9 +460,11 @@ def self_read_file(path: str) -> str:
     Args:
         path: 项目相对路径（如 ``"tools/files.py"`` / ``"prompts/system.md"`` /
               ``"ai_agent/loop.py"``）
+        offset: 从第几行开始读（1-indexed；0 = 从头）
+        limit: 最多读多少行（0 = 不限，仍受 30000 字符上限约束）
 
     Returns:
-        文件内容（超 30000 字符截断）。
+        文件内容；用 offset/limit 时输出带 ``行号\\t内容`` 前缀。
     """
     p = (path or "").strip().replace("\\", "/")
     if not p:
@@ -480,8 +489,18 @@ def self_read_file(path: str) -> str:
     except Exception as e:
         return f"❌ 读取失败：{e}"
 
+    # 行切片分支
+    if offset > 0 or limit > 0:
+        from tools.files import _slice_text_by_lines
+        return _slice_text_by_lines(text, offset, limit, 30_000)
+
     if len(text) > 30_000:
-        return text[:30_000] + f"\n\n...(已截断，原 {len(text)} 字符)"
+        total_lines = text.count("\n") + 1
+        return (
+            text[:30_000]
+            + f"\n\n...(已截断，原 {len(text)} 字符 / {total_lines} 行)"
+            f"\n提示: 用 self_read_file(path, offset=N, limit=M) 按行精读后续部分"
+        )
     return text or "(空文件)"
 
 
@@ -769,7 +788,7 @@ def self_diff(last_n: int = 10) -> str:
         commit 列表 + 每个 commit 改了哪些文件（``--stat`` 格式）。
     """
     n = max(1, min(int(last_n or 10), 30))
-    r = _run_git(["log", f"-n", str(n), "--stat", "--pretty=format:%h %ad %s%n", "--date=short"])
+    r = _run_git(["log", "-n", str(n), "--stat", "--pretty=format:%h %ad %s%n", "--date=short"])
     if r.returncode != 0:
         return f"❌ git log 失败：{r.stderr[:200]}"
 
@@ -845,7 +864,6 @@ def self_edit_with_test(
         return restricted_err
 
     import subprocess as _subprocess
-    import sys as _sys
     import time as _time
     import uuid as _uuid
 
