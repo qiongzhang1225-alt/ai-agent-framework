@@ -27,11 +27,15 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from agent import create_agent
-from ai_agent import (
+from timing import mark
+mark("server.py 顶部 import 完成（FastAPI 大库就位）")
+
+from agent import create_agent  # noqa: E402
+mark("agent.create_agent import 完成（触发 tools 注册）")
+from ai_agent import (  # noqa: E402
     JSONCheckpoint, Message, message_from_dict, message_to_dict,
 )
-from paths import (
+from paths import (  # noqa: E402
     PROJECT_ROOT,
     ASSETS_DIR,
     STATIC_DIR,
@@ -68,6 +72,7 @@ app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 # 失败永不阻塞启动。这是给"删错了发现得晚"留的远期保险。
 @app.on_event("startup")
 async def _on_startup_backup():
+    mark("FastAPI startup hook: backup 开始")
     try:
         from backups import snapshot_all
         summary = snapshot_all()
@@ -82,6 +87,7 @@ async def _on_startup_backup():
             print(f"[backups] 启动快照: {' | '.join(msgs)}")
     except Exception as e:
         print(f"[backups] 启动快照失败（不影响主服务）: {e}")
+    mark("FastAPI startup hook: backup 完成")
 
 
 # 启动时兜底 commit working tree（防 self_edit 工具被改坏跳过 commit）。
@@ -230,15 +236,31 @@ ensure_master_conversation()
 # yuki 调 code_search / code_outline 等工具时不用等数秒首次索引
 # 失败不致命（tree-sitter 解析异常等），yuki 首次调时还会触发
 def _warmup_code_index():
+    """后台预热代码索引（**当前已禁用**）。
+
+    实测发现这个 daemon thread 跑 tree-sitter 解析 200+ .py 文件时
+    跟 bge 模型加载抢 GIL，把启动时间从 ~10 秒拉到 144 秒（130 秒纯被
+    锁竞争吃掉）。完全负收益 —— 见 commit log。
+
+    code_indexer 本身已经懒加载 + hash 增量缓存：
+    - 首次 ``code_search`` 调用触发全量索引（一次性 ~5 秒）
+    - 之后 ``self_edit`` 通过 ``update_file`` 钩子做单文件增量
+    - 日常常态秒级响应
+
+    保留函数本体，方便将来有显式预热场景（如 CLI 提前调用 / 配置开关）
+    再启用 —— 但**不要**在 server.py 启动时自动跑。
+    """
     try:
         import threading
         from tools.code_indexer import get_indexer
 
         def _do_warmup():
+            mark("code_index warmup 线程开始 refresh()")
             try:
                 get_indexer().refresh(str(PROJECT_ROOT))
             except Exception as e:
                 print(f"[code_indexer 预热失败（不影响功能）] {e}")
+            mark("code_index warmup 完成")
 
         threading.Thread(
             target=_do_warmup, daemon=True, name="code_index_warmup"
@@ -247,7 +269,9 @@ def _warmup_code_index():
         print(f"[code_indexer 启动跳过] {e}")
 
 
-_warmup_code_index()
+# ❌ 禁用自动启动 —— GIL 跟 bge 加载抢，启动从 10s 拉到 144s
+# _warmup_code_index()
+mark("server.py 模块全部加载完成")
 
 
 # ── 工作目录文件过滤（防 venv / node_modules / 缓存等淹没列表）────────────

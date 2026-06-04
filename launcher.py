@@ -452,12 +452,16 @@ def _warm_up_in_background(port: int, on_ready) -> None:
                 pass
             time.sleep(0.2)
 
+        from timing import mark
+        mark("server /api/health 就绪")
+
         # 预热 chromadb（最大延迟来源）
         try:
             from memory import list_memories
             list_memories(limit=1)
         except Exception as e:
             print(f"[warmup] memory 预热失败（不阻塞）: {e}", file=sys.stderr)
+        mark("chromadb + bge 预热完成")
 
         # 保证 splash 至少显示一段时间，让用户能看见
         elapsed = time.time() - splash_start
@@ -477,6 +481,9 @@ def _warm_up_in_background(port: int, on_ready) -> None:
 def main() -> int:
     global _window_ref
 
+    from timing import mark
+    mark("launcher.main() 开始")
+
     # 1. 单实例
     if not acquire_lock():
         _show_already_running_dialog()
@@ -486,6 +493,7 @@ def main() -> int:
         # 2. 首次启动种子化 + cwd 设到 APP_DIR
         _seed_user_writable_dirs()
         os.chdir(APP_DIR)
+        mark("种子化完成 + cwd 切换")
 
         # 2.5. PyInstaller bootloader splash 检测（关闭时机：pywebview shown 后）
         try:
@@ -539,6 +547,7 @@ def main() -> int:
             text_select=True,    # 允许在 webview 里选中复制文本（默认 False = 禁止选中）
         )
         _window_ref = window
+        mark("splash 窗口创建完成（用户可见）")
 
         # 6. 后台线程做重型加载
         # 包含: 选端口 → 启 uvicorn (触发 server 模块 import → 大库加载) →
@@ -546,13 +555,16 @@ def main() -> int:
         # 整个流程跟 pywebview splash 显示并行，用户看到的就是"动画期 = 真实加载期"
         def _heavy_init():
             try:
+                mark("heavy_init 线程启动")
                 port = find_free_port(3616)
                 url = f"http://127.0.0.1:{port}"
                 start_server(port)
+                mark("uvicorn start_server 返回")
 
                 # 预热 chromadb + 切主 URL
                 def _switch_to_main():
                     try:
+                        mark("切换 webview 到主 URL")
                         window.load_url(url)
                     except Exception as e:
                         print(f"[switch] load_url 失败: {e}", file=sys.stderr)

@@ -62,6 +62,7 @@ def _get_embedding_fn():
     通过设置 HF_HUB_OFFLINE / TRANSFORMERS_OFFLINE 强制离线模式，
     避免 sentence_transformers / transformers 内部尝试联网校验导致延迟或失败。
     """
+    from timing import mark
     global _embedding_fn
     if _embedding_fn is None:
         if not _BGE_MODEL_PATH.exists():
@@ -71,23 +72,29 @@ def _get_embedding_fn():
             )
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+        mark("bge 模型加载开始（SentenceTransformer 实例化）")
         from chromadb.utils import embedding_functions
         _embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=str(_BGE_MODEL_PATH)
         )
+        mark("bge 模型加载完成")
     return _embedding_fn
 
 
 def _get_collection():
     """懒加载 chroma collection（首次调用时创建客户端 + 集合）。"""
+    from timing import mark
     global _client, _collection
     if _collection is None:
         MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        mark("chromadb PersistentClient 实例化开始")
         _client = chromadb.PersistentClient(path=str(MEMORY_DIR))
+        mark("chromadb PersistentClient 就绪")
         _collection = _client.get_or_create_collection(
             name=COLLECTION_NAME,
             embedding_function=_get_embedding_fn(),
         )
+        mark("chromadb collection 就绪")
     return _collection
 
 
