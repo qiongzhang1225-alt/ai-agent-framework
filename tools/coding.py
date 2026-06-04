@@ -171,7 +171,7 @@ def lint(
     type_check: bool = False,
     config: dict = None,
 ) -> str:
-    """跑 ruff 静态检查（可选叠加 mypy 类型检查）。
+    """**改完 .py 必跑**（硬约束）：ruff 静态检查，秒级抓未用变量 / 语法错 / 缩进。
 
     ``fix=True`` 时自动修可修复的（未用 import、import 排序等）。
     ``type_check=True`` 时**额外**跑一遍 mypy（非 strict，--ignore-missing-imports）。
@@ -280,7 +280,7 @@ def format_code(
     check_only: bool = False,
     config: dict = None,
 ) -> str:
-    """跑 ruff format 格式化 Python 代码（也支持 import 排序）。
+    """**lint 报 format 类问题时用**：ruff format Python 代码（含 import 排序）。
 
     ``check_only=True`` 仅检查不改文件（适合"看哪些需要格式化"）。
 
@@ -339,7 +339,7 @@ def run_tests(
     verbose: bool = False,
     config: dict = None,
 ) -> str:
-    """跑 pytest 测试，给结构化摘要（通过/失败/错误 + 失败详情）。
+    """**改完代码逻辑后验证**：跑 pytest + 结构化摘要（通过/失败 + 失败 traceback）。比 execute_code 跑测试更适合给主人看。
 
     什么时候用：
     - 改完代码（特别是修 bug）后立刻验证

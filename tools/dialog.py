@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
 
 from ai_agent import tool
 
@@ -245,12 +244,13 @@ def audit_stats(
     last_n: int = 200,
     config: dict = {},
 ) -> str:
-    """统计本对话最近 N 次工具调用的成功率 / 耗时 / 失败 Top。
+    """**自查工具使用画像**：调用次数 / 成功率 / 平均耗时 / Top 失败工具。
 
     用途:
     - 自我监控: "我最近调啥多 / 哪个工具最常失败"
     - 主人问"你工具用得效率如何" / "最常踩什么坑"
     - 决定要不要 self_edit 优化某个工具（持续高失败率 = 该改）
+    - 隔一段时间主动跑一次（self_edit_file 提示你 20 次后建议自查）
 
     Args:
         last_n: 统计最近多少次工具调用（默认 200，最多 1000）。
@@ -341,7 +341,7 @@ def audit_stats(
     failing.sort(key=lambda kv: -(kv[1]["calls"] - kv[1]["ok"]))
     if failing:
         lines.append("")
-        lines.append(f"Top 失败工具:")
+        lines.append("Top 失败工具:")
         for tool, st in failing[:5]:
             fails = st["calls"] - st["ok"]
             lines.append(f"  ✗ {tool}: 失败 {fails}/{st['calls']}")

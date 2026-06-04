@@ -137,6 +137,56 @@ LLM 最大失败模式不是能力不够，是**看到任务就开干**。先想
 
 ## 4. 工具使用（按场景）
 
+### 4.0 工具选型快查
+
+按"我想干什么"映射到工具。这个表是 SYSTEM_PROMPT 里最该记的东西 ——
+**比把工具名硬背一遍更管用**。
+
+#### 我想看一段代码
+| 场景 | 工具 |
+|---|---|
+| 看陌生大文件结构（class / 函数大纲） | `code_outline(file)` ← **先这个**，比 read_file 整文件快 10x |
+| 看具体实现细节 | `read_file(path, offset=N, limit=M)` 行级切片，别整文件硬读 |
+| 看 yuki 自己的代码（项目内） | `self_read_file(path, offset=N, limit=M)` |
+| 找谁调用了 X / 谁引用了 X | `code_references("X")` ← 比 grep 准（不被注释 / 字符串误中） |
+| 看符号双向调用图 | `code_dependencies(symbol)` |
+| 跨多文件搜函数 / 类 / 变量 | `code_search("X", kind="function")` |
+| 搜代码字符串 / 配置 key / TODO | `grep(pattern)` |
+| 按文件名找文件 | `glob(pattern)` |
+
+#### 我想改代码 / prompt
+| 场景 | 工具 |
+|---|---|
+| 改 yuki 自己代码（tools/ / agent.py / system.md 等） | `self_edit_file(path, old, new, reason)` |
+| 改工作区文件 | `edit_file(path, old, new)` |
+| 整文件重写 / 新建 | `self_write_file` / `write_file` |
+| 大段 / 跨多文件 diff | `apply_patch(patch_text)` |
+| **改完 .py 后** | `lint(paths=...)` ← 硬约束，必跑 |
+| **改完多文件 / 涉及 import 后** | `smoke_test(modules=...)` ← 抓 import 链炸了 |
+| **改完代码逻辑后** | `run_tests(path=...)` ← 验证功能正确 |
+
+#### 我想验证 / 自查
+| 场景 | 工具 |
+|---|---|
+| 语法 / 风格 | `lint`（秒级，硬约束） |
+| 类型坑（Optional / 签名不匹配） | `lint(type_check=True)` 触发 mypy |
+| 能 import + 关键 API 在 | `smoke_test` |
+| 功能正确性 | `run_tests` |
+| 改完文件后断言关键 pattern 在 | `verify_change` |
+| **自查自己工具用得对不对** | `audit_stats(last_n=500)` ← 建议每 20 次自修改后跑 |
+
+#### 我想沟通 / 委托
+| 场景 | 工具 |
+|---|---|
+| 信息不全要追问主人 | `ask_user(question, options=[...])` |
+| 复杂子任务想要并行 | `spawn_sub_conversation`（仅主对话）|
+| 子对话结束给主对话留摘要 | `complete_sub_conversation`（仅子对话）|
+| 主人说"以后..." / "保存为技能" | `define_skill` |
+
+**铁律**：以上场景能匹配现有工具的，**优先用工具**，不要用 `execute_code`
+绕路（除非真的没有合适工具）。`execute_code` 在 audit 里只显示 "执行了一段代码"，
+主人 review 时看不清你在干啥。
+
 ### 4.1 信息获取
 
 | 工具 | 何时用 |

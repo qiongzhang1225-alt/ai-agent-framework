@@ -594,7 +594,7 @@ def code_search(
     kind: str = "",
     config: dict = {},
 ) -> str:
-    """**精确搜索**代码中的符号（函数名、类名、变量名），返回定义和引用位置。
+    """**比 grep 准**：tree-sitter 解析 AST 精确搜符号（函数 / 类 / 变量），不被注释 / 字符串误中。返回定义 + 引用位置。
 
     比 grep 更精确：能区分"定义"和"引用"，且不受注释/字符串中的同名干扰。
     当前支持 Python（lang='python'）和 JavaScript（lang='javascript'），
@@ -650,7 +650,7 @@ def code_outline(
     path: str = ".",
     config: dict = {},
 ) -> str:
-    """列出代码文件的**结构轮廓**（类、函数、方法），支持树形显示。
+    """**看陌生大文件先用**（比 read_file 整文件快 10x）：树形列出类 / 函数 / 方法大纲。
 
     参数：
         path: 文件或目录路径（默认当前工作目录）
@@ -720,7 +720,7 @@ def code_references(
     path: str = ".",
     config: dict = {},
 ) -> str:
-    """查询某符号的所有引用处，含代码上下文行。"""
+    """**改函数签名 / 删类前必跑**：精确列出该符号被谁引用 + 上下文（tree-sitter 解析，比 grep 准）。"""
     from paths import DEFAULT_WORKDIR
     cfg = config.get("configurable", {}) if config else {}
     base = Path(cfg.get("workdir") or str(DEFAULT_WORKDIR)).resolve()
@@ -762,7 +762,7 @@ def code_dependencies(
     file: str = "",
     config: dict = {},
 ) -> str:
-    """查询某符号的调用图——它调了谁和谁调了它。"""
+    """**重构前看影响面**：某符号的调用图 —— 它调了谁 + 谁调了它（两向）。"""
     from paths import DEFAULT_WORKDIR
     cfg = config.get("configurable", {}) if config else {}
     base = Path(cfg.get("workdir") or str(DEFAULT_WORKDIR)).resolve()
@@ -771,7 +771,7 @@ def code_dependencies(
     root_path = search_path if os.path.isdir(search_path) else os.path.dirname(search_path)
     cache = indexer._ensure_index(root_path, "python")
     if not cache:
-        return f"未找到代码"
+        return "未找到代码"
     all_defs = indexer.search(symbol, search_path, kind="definition")
     if not all_defs:
         return f"未找到符号 {symbol!r} 的定义"
@@ -788,7 +788,7 @@ def code_dependencies(
             for c in sorted(set(callees)):
                 lines.append(f"       -> {c}")
         else:
-            lines.append(f"     没有直接调用其他函数")
+            lines.append("     没有直接调用其他函数")
         incoming = []
         for fname, fcg in cache.call_graph.items():
             for cc, cl in fcg.items():
@@ -808,5 +808,5 @@ def code_dependencies(
             for fname, detail in incoming:
                 lines.append(f"       <- {fname}  {detail}")
         else:
-            lines.append(f"     没有被其他代码调用")
+            lines.append("     没有被其他代码调用")
     return "\n".join(lines)

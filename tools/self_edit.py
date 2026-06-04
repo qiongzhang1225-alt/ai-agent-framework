@@ -227,6 +227,33 @@ def _count_recent_reverts(path: str, hours: int = 1) -> int:
 EDIT_LOOP_REVERT_THRESHOLD = 3
 EDIT_LOOP_WINDOW_HOURS = 1
 
+# 自查提示阈值：每 N 次 [ai-edit] commit 后建议跑一次 audit_stats
+AUDIT_NUDGE_EVERY = 20
+
+
+def _check_audit_nudge() -> str:
+    """每 N 次 [ai-edit] 后追加 audit_stats 自查提示。
+
+    设计：
+    - 软提示，不强制 —— 加在 self_edit_* 成功返回 msg 末尾
+    - 数 git log 全部历史的 [ai-edit] commit，count % AUDIT_NUDGE_EVERY == 0 时触发
+    - 失败 / 0 commit / 数错都静默返回 "" —— 永不阻塞主流程
+    """
+    try:
+        r = _run_git(["log", "--pretty=format:%s"])
+        if r.returncode != 0:
+            return ""
+        count = sum(1 for line in r.stdout.split("\n") if line.startswith("[ai-edit] "))
+        if count > 0 and count % AUDIT_NUDGE_EVERY == 0:
+            return (
+                f"\n📊 已累计 {count} 次自修改。建议跑 "
+                f"`audit_stats(last_n=500)` 看你工具使用画像"
+                f"（成功率 / 高失败工具 / 长期未用的工具）。"
+            )
+    except Exception:
+        pass
+    return ""
+
 
 def _check_edit_loop(path: str) -> str | None:
     """检查熔断。仅在改动被反复 revert（真正"没通过"）时触发硬拒绝。
@@ -631,6 +658,7 @@ def self_edit_file(
     )
     if safe_hash:
         msg += f"\n（改前已 safety commit：{safe_hash[:8]}）"
+    msg += _check_audit_nudge()
     return msg
 
 
@@ -722,6 +750,7 @@ def self_write_file(
     )
     if safe_hash:
         msg += f"\n（改前已 safety commit：{safe_hash[:8]}）"
+    msg += _check_audit_nudge()
     return msg
 
 
