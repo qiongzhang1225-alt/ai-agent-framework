@@ -1,4 +1,4 @@
-"""编程辅助工具集 (5 个 @tool)。
+"""编程辅助工具集 (6 个 @tool)。
 
 跟 Claude Code 等成熟 Agent 看齐，给 yuki 加上日常编程必需的高频能力：
 
@@ -7,6 +7,7 @@
 - ``run_tests(path, ...)``    —— 跑 pytest 测试 + 结构化输出
 - ``apply_patch(patch_text)`` —— 应用 unified diff（多文件多 hunk）
 - ``find_references(...)``    —— 找符号引用（code_indexer + grep 兜底）
+- ``smoke_test(...)``         —— 烟雾测试：能 import + 关键 API 存在
 
 设计要点：
 - 全部跑在项目根 / 工作目录，不污染主进程
@@ -613,3 +614,192 @@ def find_references(
         out.append(f"\n...(还有 {len(sorted_files) - 20} 个文件)")
 
     return "\n".join(out)
+
+
+# ── 6. smoke_test ───────────────────────────────────────────────────────
+
+
+# 跑在子进程里的检查脚本：从 stdin 读 JSON 配置，结果 JSON 写 stdout
+_SMOKE_RUNNER = r'''
+import sys, json, importlib
+
+# argv[1] 是要加到 sys.path[0] 的根目录
+if len(sys.argv) > 1:
+    sys.path.insert(0, sys.argv[1])
+
+data = json.loads(sys.stdin.read())
+modules_to_check = data.get("modules") or []
+asserts_to_check = data.get("asserts") or []
+
+results = {"imports": [], "asserts": []}
+
+for mod_name in modules_to_check:
+    try:
+        importlib.import_module(mod_name)
+        results["imports"].append({"name": mod_name, "ok": True})
+    except BaseException as e:
+        results["imports"].append({
+            "name": mod_name,
+            "ok": False,
+            "err": f"{type(e).__name__}: {e}",
+        })
+
+for spec in asserts_to_check:
+    try:
+        if ":" not in spec:
+            raise ValueError("spec 必须是 'module:attr.path' 格式")
+        mod_name, attr_path = spec.split(":", 1)
+        obj = importlib.import_module(mod_name)
+        for part in attr_path.split("."):
+            obj = getattr(obj, part)
+        results["asserts"].append({"spec": spec, "ok": True})
+    except BaseException as e:
+        results["asserts"].append({
+            "spec": spec,
+            "ok": False,
+            "err": f"{type(e).__name__}: {e}",
+        })
+
+sys.stdout.write("\n__SMOKE_RESULT__" + json.dumps(results) + "\n")
+'''
+
+
+@tool
+def smoke_test(
+    modules: list = None,
+    asserts: list = None,
+    cwd: str = "",
+    config: dict = None,
+) -> str:
+    """烟雾测试：验证模块能 import + 关键 API 存在 —— 最低门槛"能跑吗"检查。
+
+    跟其他工具的关系（从浅到深）：
+    - ``lint``        语法 / 风格（ruff，秒级）
+    - ``smoke_test``  能 import + 关键 API 存在（本工具，秒级）
+    - ``run_tests``   功能正确性（pytest，分钟级）
+
+    什么时候用：
+    - 改完**多个文件**后（特别是动了 import / 重构 / 文件复制）
+    - **同步 public/ 后**验证另一边还能 boot（cwd="public"）
+    - 跑完整 pytest 之前先过一道关卡
+    - 主人说"能跑吗 / 别炸了"
+    - 新 ``define_skill`` 后验证持久化文件能加载
+
+    什么时候**不要**用：
+    - 改单个文件且没动 import → ``lint`` 就够
+    - 想验证业务逻辑对不对 → 用 ``run_tests``
+
+    工作机制：
+    - 在**子进程**里 import（不影响你当前进程的 module cache）
+    - 这意味着 ``self_edit_file`` 改完**立刻**就能用 smoke_test 验证 —— 子
+      进程从磁盘读最新文件，不受你内存里旧版本影响
+    - 子进程结束后退出，不污染状态
+
+    Args:
+        modules: 要 import 的模块名列表（点分形式）。
+                 默认 ``["agent", "server", "tools"]`` —— 项目三个核心入口。
+                 例: ``["tools.coding", "tools.code_indexer"]``。
+                 传 ``[]`` 跳过 import 检查（只验 asserts）。
+        asserts: 要验证存在的 API 列表，每项格式 ``"module:attr.path"``：
+                 - ``"tools.coding:lint"`` → ``hasattr(tools.coding, "lint")``
+                 - ``"tools.code_indexer:CodeIndexer.update_file"`` →
+                   验证类方法存在
+                 默认 ``[]``。
+        cwd: 在哪个目录跑（决定 sys.path[0]）。
+             默认 ``""`` → PROJECT_ROOT；传相对路径 → workdir/cwd；
+             传绝对路径 → 直接用。例: ``"public"`` 验证 public 仓库。
+
+    Returns:
+        ``✓ smoke test 通过 (N import + M asserts)`` 或
+        ``❌ smoke test 失败`` + 每条挂的 spec + 错误类型 + 详情。
+    """
+    workdir = _resolve_workdir(config)
+
+    if modules is None:
+        modules = ["agent", "server", "tools"]
+    if asserts is None:
+        asserts = []
+
+    if not modules and not asserts:
+        return "❌ modules 和 asserts 不能都为空"
+
+    # 决定运行目录
+    if cwd:
+        cwd_p = Path(cwd)
+        if not cwd_p.is_absolute():
+            cwd_p = workdir / cwd
+        try:
+            cwd_p = cwd_p.resolve()
+        except Exception as e:
+            return f"❌ cwd 解析失败: {e}"
+        if not cwd_p.is_dir():
+            return f"❌ cwd 不是目录: {cwd}"
+        run_dir = cwd_p
+    else:
+        run_dir = PROJECT_ROOT
+
+    py = find_real_python()
+    if not py:
+        return "❌ 找不到 Python 解释器"
+
+    try:
+        r = subprocess.run(
+            [py, "-c", _SMOKE_RUNNER, str(run_dir)],
+            cwd=str(run_dir),
+            input=json.dumps({"modules": modules, "asserts": asserts}),
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return "❌ smoke_test 超时 (60s)"
+    except Exception as e:
+        return f"❌ smoke_test 启动失败: {e}"
+
+    # 用 marker 抓结果（避免 import 时模块的 print/log 干扰 JSON 解析）
+    out = r.stdout or ""
+    marker = "__SMOKE_RESULT__"
+    idx = out.rfind(marker)
+    if idx < 0:
+        return (
+            f"❌ smoke_test 无结果（找不到 marker）:\n"
+            f"stdout: {_truncate(out, 800)}\n"
+            f"stderr: {_truncate(r.stderr, 400)}"
+        )
+    json_part = out[idx + len(marker):].strip().split("\n")[0]
+    try:
+        result = json.loads(json_part)
+    except Exception as e:
+        return f"❌ smoke_test 解析失败: {e}\n{_truncate(json_part, 500)}"
+
+    import_fails = [x for x in result.get("imports", []) if not x.get("ok")]
+    assert_fails = [x for x in result.get("asserts", []) if not x.get("ok")]
+
+    if not import_fails and not assert_fails:
+        return (
+            f"✓ smoke test 通过 ({len(modules)} import + {len(asserts)} asserts)"
+            f" @ {run_dir.name}"
+        )
+
+    lines = [
+        f"❌ smoke test 失败 @ {run_dir.name}",
+        f"  ({len(import_fails)}/{len(modules)} import 错，"
+        f"{len(assert_fails)}/{len(asserts)} assert 错)",
+    ]
+    if import_fails:
+        lines.append("")
+        lines.append("import 失败:")
+        for f in import_fails[:10]:
+            lines.append(f"  - {f['name']}")
+            lines.append(f"      {f['err']}")
+        if len(import_fails) > 10:
+            lines.append(f"  ...(还有 {len(import_fails) - 10} 条)")
+    if assert_fails:
+        lines.append("")
+        lines.append("assert 失败:")
+        for f in assert_fails[:10]:
+            lines.append(f"  - {f['spec']}")
+            lines.append(f"      {f['err']}")
+        if len(assert_fails) > 10:
+            lines.append(f"  ...(还有 {len(assert_fails) - 10} 条)")
+    return "\n".join(lines)

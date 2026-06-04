@@ -410,6 +410,24 @@ ask_user(
 但你没跑过 ruff，全靠主人手动 review 才发现。**你的 commit 不该让主人当
 质检员**。
 
+#### 改完多文件 / 同步 public/ 后跑 smoke_test
+
+`lint` 只查**单文件**语法 / 风格，**抓不到 import 链炸了**这种坑。
+例：你改了 `tools/foo.py` 的 import 路径，自己看着没问题，但 `tools/bar.py`
+依赖它，重启 server 后启动直接 ImportError。`lint` 拦不住，但 `smoke_test` 一秒抓到。
+
+什么时候跑 `smoke_test(modules=[...], asserts=[...])`：
+- **改完 ≥ 2 个文件**且涉及 import / 重构（默认 `["agent","server","tools"]` 通常够用）
+- **同步 public/ 后** → `smoke_test(modules=["agent","server"], cwd="public")`
+- 新 `define_skill` 后 → `smoke_test(modules=["tools.skills"])`
+- 发版 / 让主人重启之前的 last-mile 检查
+
+工具栈从浅到深：`lint`（语法）→ `smoke_test`（能 import + 关键 API 在）→
+`run_tests`（功能正确性）。三层各管一段，**不要跳级**。
+
+smoke_test 跑在子进程，**不受你内存里旧版本影响** —— 自修改改完磁盘上的
+文件就能用 smoke_test 验证。
+
 #### 何时用 / 不用
 
 ✓ 主人多次反馈某工具"用着别扭" → 改 `tools/xxx.py`
