@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import uuid
 from pathlib import Path
 
 from ai_agent import tool
 from paths import DEFAULT_WORKDIR, META_DIR
+from tools._common import find_real_python
 
 
 # 注入到每段用户代码前面的 setup：UTF-8、matplotlib 中文配置、路径守卫
@@ -194,11 +194,23 @@ def execute_code(code: str, config: dict) -> str:
     env["AGENT_WORKDIR"] = str(workdir)
     env["PYTHONIOENCODING"] = "utf-8"
 
+    # 找 Python 解释器（frozen 模式避开 yuki.exe 自递归启动）
+    python_exe = find_real_python()
+    if python_exe is None:
+        return (
+            "[execute_code 不可用] 打包模式下找不到真的 Python 解释器。\n"
+            "解决方法（任选其一）：\n"
+            "1. 在 exe 同级目录建 .venv（python -m venv .venv），yuki 会自动用它\n"
+            "2. 设环境变量 YUKI_PYTHON 指向你的 python.exe 完整路径\n"
+            "3. 把 python 加入系统 PATH\n"
+            f"脚本副本: {script_path}"
+        )
+
     # D1 放权：超时 60 → 180s（给长流程任务空间，如 pip install / playwright install）
     _EXEC_TIMEOUT = 180
     try:
         result = subprocess.run(
-            [sys.executable, str(script_path)],
+            [python_exe, str(script_path)],
             cwd=str(workdir),
             env=env,
             capture_output=True,

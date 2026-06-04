@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import Any, Callable, get_type_hints
+from typing import Any, Callable, get_origin, get_type_hints
 
 
 @dataclass
@@ -65,7 +65,7 @@ def _build_tool_meta(func: Callable) -> Tool:
             needs_config = True
             continue
         py_type = hints.get(pname, str)
-        json_type = _TYPE_MAP.get(py_type, "string")
+        json_type = _TYPE_MAP.get(get_origin(py_type) or py_type, "string")
         props[pname] = {"type": json_type}
         if param.default is inspect.Parameter.empty:
             required.append(pname)

@@ -37,3 +37,7 @@ Pillow>=10.0
 pywebview>=5.0
 pystray>=0.19
 pyinstaller>=6.0          # 仅打包时用，运行可不装
+
+# 编程工具支持（tools/coding.py 的 lint / format / run_tests 用）
+ruff>=0.7                 # 静态检查 + 格式化
+pytest>=8.0               # 测试 runner

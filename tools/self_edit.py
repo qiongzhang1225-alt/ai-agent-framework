@@ -915,10 +915,22 @@ def self_edit_with_test(
         except Exception:
             pass
 
+    # frozen 模式下 _sys.executable = yuki.exe，启动它会撞单实例锁弹窗
+    # 必须找真 python.exe（venv / PATH / YUKI_PYTHON）
+    from tools._common import find_real_python
+    _py = find_real_python()
+    if _py is None:
+        _cleanup_test()
+        _git_restore_path(abs_path)
+        return (
+            "❌ 打包模式下找不到真 Python 解释器跑测试脚本。\n"
+            "解决：exe 旁建 .venv，或设 YUKI_PYTHON 环境变量指向 python.exe"
+        )
+
     try:
         t0 = _time.monotonic()
         result = _subprocess.run(
-            [_sys.executable, "-X", "utf8", str(test_path)],
+            [_py, "-X", "utf8", str(test_path)],
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
@@ -959,7 +971,7 @@ def self_edit_with_test(
     )
     try:
         smoke = _subprocess.run(
-            [_sys.executable, "-X", "utf8", "-c", smoke_code],
+            [_py, "-X", "utf8", "-c", smoke_code],   # 复用上面找到的 _py（非 yuki.exe）
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,

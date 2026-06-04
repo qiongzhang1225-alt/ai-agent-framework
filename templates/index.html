@@ -385,7 +385,7 @@
           </button>
           <!-- 工作目录 + 最近文件浮卡触发 -->
           <button
-            @click="workdirCardOpen = !workdirCardOpen; if (workdirCardOpen) { workdirInput = currentConv?.workdir || ''; }"
+            @click="workdirCardOpen = !workdirCardOpen; if (workdirCardOpen) { workdirInput = currentConv?.workdir || ''; loadFileTree(); }"
             class="relative flex items-center gap-1.5 px-2 py-1 rounded text-xs
                    text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition"
             title="工作目录与最近文件"
@@ -452,18 +452,27 @@
             <span class="text-[10px] text-zinc-500" x-text="`${recentFiles.length} 个文件 · ${models[currentModel]}`"></span>
           </div>
 
-          <!-- 工作目录路径 + 编辑 -->
+          <!-- 工作目录路径 + 操作（编辑 / 打开文件夹） -->
           <div class="px-4 py-3 space-y-2 border-b border-white/10">
             <div class="text-[10px] text-zinc-500 uppercase tracking-wider">路径</div>
-            <input
-              type="text"
-              x-model="workdirInput"
-              @keydown.enter.prevent="applyWorkdir(); workdirCardOpen = false"
-              @keydown.escape="workdirInput = currentConv?.workdir || ''"
-              class="w-full bg-zinc-800/60 border border-white/10 rounded px-2.5 py-1.5 text-xs font-mono
-                     text-zinc-200 focus:outline-none focus:border-primary-light"
-              placeholder="工作目录绝对路径"
-            />
+            <div class="flex gap-1.5">
+              <input
+                type="text"
+                x-model="workdirInput"
+                @keydown.enter.prevent="applyWorkdir(); workdirCardOpen = false"
+                @keydown.escape="workdirInput = currentConv?.workdir || ''"
+                class="flex-1 bg-zinc-800/60 border border-white/10 rounded px-2.5 py-1.5 text-xs font-mono
+                       text-zinc-200 focus:outline-none focus:border-primary-light"
+                placeholder="工作目录绝对路径"
+              />
+              <!-- 用系统文件管理器打开 -->
+              <button
+                @click="openWorkdir()"
+                class="px-2 py-1 text-xs bg-zinc-800/60 hover:bg-primary/30 text-zinc-300 hover:text-white
+                       border border-white/10 rounded transition shrink-0"
+                title="用文件管理器打开工作目录"
+              >📂 打开</button>
+            </div>
             <div class="flex gap-2 justify-end">
               <button
                 @click="workdirInput = currentConv?.workdir || ''"
@@ -476,32 +485,56 @@
             </div>
           </div>
 
-          <!-- 最近文件 chip -->
+          <!-- 文件树 -->
           <div class="px-4 py-3">
             <div class="flex items-center justify-between mb-2">
-              <span class="text-[10px] text-zinc-500 uppercase tracking-wider">最近文件</span>
+              <span class="text-[10px] text-zinc-500 uppercase tracking-wider">
+                文件 (已过滤 venv / 缓存)
+              </span>
               <button
-                @click="loadRecentFiles()"
+                @click="loadFileTree()"
                 class="text-[10px] text-zinc-500 hover:text-zinc-300"
                 title="刷新"
               >🔄 刷新</button>
             </div>
-            <template x-if="recentFiles.length === 0">
+            <template x-if="!fileTree || fileTree.length === 0">
               <div class="text-xs text-zinc-500 text-center py-4">
                 当前工作目录还没有文件
               </div>
             </template>
-            <div class="flex flex-wrap gap-1.5">
-              <template x-for="f in recentFiles" :key="f.path">
-                <button
-                  @click="insertFileMention(f.path); workdirCardOpen = false"
-                  class="text-xs px-2 py-1 rounded-md bg-zinc-800/60 hover:bg-primary/30
-                         text-zinc-300 hover:text-white transition border border-white/10
-                         max-w-[180px] truncate"
-                  :title="`点击插入 @${f.path} 到输入框`"
-                >
-                  📄 <span x-text="f.path"></span>
-                </button>
+            <!-- 扁平化树渲染：按 depth 缩进，目录可折叠 -->
+            <div x-show="fileTree && fileTree.length" class="text-xs space-y-px">
+              <template x-for="node in flatFileTree()" :key="node.path">
+                <div class="flex items-center gap-1 hover:bg-white/5 rounded transition"
+                     :style="`padding-left: ${4 + node.depth * 14}px`">
+                  <!-- 目录：可点击展开/收起 -->
+                  <template x-if="node.is_dir">
+                    <button
+                      @click="toggleDir(node.path)"
+                      class="flex items-center gap-1 flex-1 text-left py-0.5 text-zinc-300 hover:text-white"
+                      :title="`${node.path} (${node.children?.length || 0} 项)`"
+                    >
+                      <span class="text-zinc-500 w-3 text-center"
+                            x-text="expandedDirs[node.path] ? '▼' : '▶'"></span>
+                      <span>📁</span>
+                      <span class="truncate" x-text="node.name"></span>
+                      <span class="text-[10px] text-zinc-600"
+                            x-text="`(${node.children?.length || 0})`"></span>
+                    </button>
+                  </template>
+                  <!-- 文件：点击插入 @path -->
+                  <template x-if="!node.is_dir">
+                    <button
+                      @click="insertFileMention(node.path); workdirCardOpen = false"
+                      class="flex items-center gap-1 flex-1 text-left py-0.5 text-zinc-300 hover:text-white"
+                      :title="`点击插入 @${node.path}\n大小: ${formatSize(node.size)}`"
+                    >
+                      <span class="w-3"></span>
+                      <span x-text="fileIcon(node.name)"></span>
+                      <span class="truncate" x-text="node.name"></span>
+                    </button>
+                  </template>
+                </div>
               </template>
             </div>
           </div>
@@ -558,11 +591,68 @@
         </template>
 
         <template x-for="(msg, idx) in messages" :key="idx">
-          <div
-            x-show="isVisibleMessage(msg)"
-            class="message-row group flex gap-3 items-start"
-            :class="msg.role === 'user' ? 'flex-row-reverse' : ''"
-          >
+          <div x-show="isVisibleMessage(msg)">
+            <!-- ─── 工具步骤卡（role=tool）：紧凑样式，无头像，左侧缩进 ─── -->
+            <template x-if="msg.role === 'tool'">
+              <div class="ml-11 mb-1 group">
+                <!-- 折叠头：图标 + 工具名 + 参数预览 + 状态 + 展开按钮 -->
+                <button
+                  @click="toggleStep(idx)"
+                  class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md
+                         bg-zinc-800/40 hover:bg-zinc-800/70 border border-white/5
+                         hover:border-white/15 transition text-left text-xs"
+                >
+                  <span class="text-sm shrink-0" x-text="toolIcon((findToolCallForTool(msg) || {}).name)"></span>
+                  <code class="text-amber-300/90 shrink-0" x-text="(findToolCallForTool(msg) || {}).name || '(unknown)'"></code>
+                  <span class="text-zinc-500 truncate flex-1 font-mono"
+                        x-text="toolArgsPreview(findToolCallForTool(msg))"></span>
+                  <span class="shrink-0 text-sm"
+                        :class="{
+                          'text-emerald-400': toolResultStatus(msg) === '✓',
+                          'text-red-400': toolResultStatus(msg) === '✗',
+                          'text-amber-300': toolResultStatus(msg) === '⚠',
+                          'text-zinc-500': toolResultStatus(msg) === '🔄',
+                        }"
+                        x-text="toolResultStatus(msg)"></span>
+                  <span class="shrink-0 text-zinc-500 text-[10px]"
+                        x-text="expandedSteps[idx] ? '▼' : '▶'"></span>
+                </button>
+
+                <!-- 展开态：完整参数 + 完整结果 -->
+                <div x-show="expandedSteps[idx]"
+                     x-transition.opacity.duration.150ms
+                     class="mt-1 ml-2 pl-3 border-l-2 border-amber-500/20 space-y-2 py-1">
+                  <!-- 参数 JSON -->
+                  <details open>
+                    <summary class="text-[10px] text-zinc-500 cursor-pointer hover:text-zinc-300">
+                      参数
+                    </summary>
+                    <pre class="mt-1 text-[11px] text-zinc-300 bg-black/30 rounded p-2 overflow-x-auto whitespace-pre-wrap"
+                         x-text="JSON.stringify((findToolCallForTool(msg) || {}).arguments || {}, null, 2)"></pre>
+                  </details>
+                  <!-- 结果 -->
+                  <details open>
+                    <summary class="text-[10px] text-zinc-500 cursor-pointer hover:text-zinc-300">
+                      结果
+                    </summary>
+                    <pre class="mt-1 text-[11px] text-zinc-300 bg-black/30 rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"
+                         x-text="msg.content || '(空)'"></pre>
+                  </details>
+                </div>
+
+                <!-- 折叠态结果预览（一行） -->
+                <div x-show="!expandedSteps[idx]"
+                     class="ml-7 text-[11px] text-zinc-500 truncate"
+                     x-text="toolResultPreview(msg)"></div>
+              </div>
+            </template>
+
+            <!-- ─── 普通消息气泡（user / 有内容的 assistant） ─── -->
+            <div
+              x-show="msg.role !== 'tool'"
+              class="message-row group flex gap-3 items-start"
+              :class="msg.role === 'user' ? 'flex-row-reverse' : ''"
+            >
             <!-- 头像 -->
             <div
               class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-medium"
@@ -727,6 +817,7 @@
                 </div>
               </template>
             </div>
+          </div>
           </div>
         </template>
 
@@ -1359,6 +1450,11 @@
         // 已压缩历史折叠卡：哪些展开了 + 拉到的全文缓存
         compressedExpanded: {},
         compressedFullText: {},
+        // 工具步骤卡：哪些展开了详情
+        expandedSteps: {},
+        // 文件树（取代旧的 recentFiles 平铺）
+        fileTree: [],
+        expandedDirs: {},   // 目录路径 → 是否展开
         // 记忆库
         memoryModalOpen: false,
         memories: [],
@@ -1782,6 +1878,11 @@
           // 切对话重置压缩折叠卡的展开状态 + 全文缓存
           this.compressedExpanded = {};
           this.compressedFullText = {};
+          // 切对话重置工具步骤卡展开状态
+          this.expandedSteps = {};
+          // 切对话重置文件树状态（避免显示旧 conv 的目录展开状态）
+          this.fileTree = [];
+          this.expandedDirs = {};
 
           // ── streaming 恢复：如果切到的 conv 在后台 streaming，把 buffer 接回 view ──
           const sentConv = this.conversations.find(c => c.id === id);
@@ -2552,18 +2653,184 @@
             const txt = this.msgText(msg);
             return !!msg.streaming || !!(txt && txt.trim());
           }
-          // tool / system 等永不直接展示
+          // tool 消息现在显示为步骤卡（紧凑样式）
+          if (msg.role === 'tool') return true;
+          // system 永不展示
           return false;
+        },
+
+        // ── 工具步骤卡 helpers ──
+        // 给 role=tool 消息找它对应的 tool_call（含工具名 + 参数）
+        // 上一条 assistant 的 tool_calls 数组里 id 匹配的那个
+        findToolCallForTool(toolMsg) {
+          if (!toolMsg || !toolMsg.tool_call_id) return null;
+          for (let i = this.messages.length - 1; i >= 0; i--) {
+            const m = this.messages[i];
+            if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+              const tc = m.tool_calls.find(t => t && t.id === toolMsg.tool_call_id);
+              if (tc) return tc;
+            }
+          }
+          return null;
+        },
+
+        // 工具图标（按工具名分类）
+        toolIcon(name) {
+          const map = {
+            // 信息获取
+            'web_search': '🔍', 'fetch_webpage': '🌐', 'recall': '🧠',
+            'audit_query': '📋',
+            // 文件
+            'read_file': '📖', 'write_file': '✍️', 'edit_file': '✏️',
+            'grep': '🔎', 'glob': '📁',
+            // 执行
+            'calculate': '🔢', 'execute_code': '🐍', 'run_command': '💻',
+            // 记忆
+            'remember': '💾', 'update_memory': '✏️', 'merge_memories': '🔗',
+            'forget_memory': '🗑️', 'restore_memory': '↩️', 'list_trash': '🗃️',
+            // 对话
+            'ask_user': '❓', 'todo_write': '📝', 'todo_read': '📝',
+            'vision_describe': '👁️', 'spawn_sub_conversation': '🌳',
+            // 自修改
+            'self_read_file': '📖', 'self_edit_file': '✏️',
+            'self_write_file': '✍️', 'self_edit_with_test': '🧪',
+            'self_rollback': '↩️', 'self_diff': '📊',
+            // 任务管理
+            'plan_task': '🗺️', 'verify_change': '✅', 'write_postmortem': '📔',
+            'screenshot_and_describe': '📸',
+            // 编程
+            'lint': '🔍', 'format_code': '🎨', 'run_tests': '🧪',
+            'apply_patch': '🩹', 'find_references': '🔗',
+            // 技能
+            'define_skill': '⭐', 'delete_skill': '🗑️', 'list_skills': '📦',
+            'restore_skill': '↩️',
+            // 系统
+            'get_current_datetime': '🕒', 'request_pip_install': '📦',
+          };
+          return map[name] || '🔧';
+        },
+
+        // tool message 的简短参数预览（取前 N 个 key:value）
+        toolArgsPreview(toolCall, maxLen = 80) {
+          if (!toolCall || !toolCall.arguments) return '';
+          const args = toolCall.arguments;
+          const parts = [];
+          for (const [k, v] of Object.entries(args)) {
+            if (parts.length >= 3) break;
+            let vs = typeof v === 'string' ? v : JSON.stringify(v);
+            if (vs.length > 30) vs = vs.slice(0, 27) + '...';
+            parts.push(`${k}=${vs}`);
+          }
+          const joined = parts.join(', ');
+          return joined.length > maxLen ? joined.slice(0, maxLen - 3) + '...' : joined;
+        },
+
+        // tool result 的状态：✓ 成功 / ✗ 失败 / 🔄 进行中（流式）
+        toolResultStatus(toolMsg) {
+          const txt = (toolMsg.content || '').toString();
+          if (!txt) return '🔄';
+          // 看常见失败标记
+          if (/^❌|\[执行失败|\[启动失败|\[错误\]|^Error:|Traceback/m.test(txt)) return '✗';
+          if (/^⚠️/m.test(txt)) return '⚠';
+          return '✓';
+        },
+
+        // tool result 摘要预览（折叠态显示）
+        toolResultPreview(toolMsg, maxLen = 120) {
+          const txt = (toolMsg.content || '').toString().trim();
+          if (!txt) return '(无输出)';
+          // 取首行，去掉常见前缀
+          const firstLine = txt.split('\n').find(l => l.trim()) || '';
+          return firstLine.length > maxLen ? firstLine.slice(0, maxLen - 3) + '...' : firstLine;
+        },
+
+        // 折叠/展开步骤卡详情
+        toggleStep(idx) {
+          this.expandedSteps[idx] = !this.expandedSteps[idx];
         },
 
         // ── 最近文件 / @mention 补全 ──────────────────────────────────────
         async loadRecentFiles() {
+          // 平铺最近修改的 50 个文件（已 server 端过滤 venv/缓存/.bak 等）
+          // 仅供 @mention 补全用；UI 显示走 fileTree
           if (!this.currentId) return;
           try {
             const resp = await fetch(`/api/conversations/${this.currentId}/files`);
             if (!resp.ok) return;
             this.recentFiles = await resp.json();
           } catch (e) { /* 静默 */ }
+          // 同时刷新树（如果浮卡正打开）
+          if (this.workdirCardOpen) this.loadFileTree();
+        },
+
+        // ── 文件树（浮卡显示用，已过滤 venv 等）──
+        async loadFileTree() {
+          if (!this.currentId) return;
+          try {
+            const resp = await fetch(`/api/conversations/${this.currentId}/files/tree`);
+            if (!resp.ok) return;
+            this.fileTree = await resp.json();
+          } catch (e) { /* 静默 */ }
+        },
+
+        toggleDir(path) {
+          this.expandedDirs[path] = !this.expandedDirs[path];
+        },
+
+        // 把 tree 按当前展开状态扁平化（顺序遍历 + 缩进 depth）
+        flatFileTree() {
+          const out = [];
+          const walk = (nodes, depth) => {
+            for (const n of nodes || []) {
+              out.push({ ...n, depth });
+              if (n.is_dir && n.children && this.expandedDirs[n.path]) {
+                walk(n.children, depth + 1);
+              }
+            }
+          };
+          walk(this.fileTree, 0);
+          return out;
+        },
+
+        // 按扩展名选图标
+        fileIcon(name) {
+          const ext = (name.split('.').pop() || '').toLowerCase();
+          const map = {
+            py: '🐍', js: '🟨', ts: '🟦', jsx: '⚛️', tsx: '⚛️',
+            html: '🌐', css: '🎨', json: '📋', yaml: '📋', yml: '📋', toml: '⚙️',
+            md: '📝', txt: '📄', log: '📋',
+            png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', webp: '🖼️', svg: '🖼️', ico: '🖼️',
+            pdf: '📕', docx: '📘', doc: '📘', xlsx: '📗', xls: '📗', pptx: '📙',
+            zip: '📦', tar: '📦', gz: '📦', '7z': '📦', rar: '📦',
+            sh: '⚙️', bat: '⚙️', ps1: '⚙️', spec: '⚙️',
+            mp3: '🎵', wav: '🎵', mp4: '🎬', mov: '🎬',
+            env: '🔐', gitignore: '🔧',
+          };
+          return map[ext] || '📄';
+        },
+
+        formatSize(bytes) {
+          if (!bytes) return '0 B';
+          const units = ['B', 'KB', 'MB', 'GB'];
+          let i = 0;
+          while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+          return `${bytes.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+        },
+
+        // 用系统文件管理器打开当前工作目录
+        async openWorkdir() {
+          if (!this.currentId) return;
+          try {
+            const resp = await fetch(`/api/conversations/${this.currentId}/open`, {
+              method: 'POST',
+            });
+            if (!resp.ok) {
+              const detail = await resp.json().catch(() => ({}));
+              alert('打开失败：' + (detail.detail || resp.statusText));
+            }
+          } catch (e) {
+            alert('打开失败：' + e.message);
+          }
         },
 
         insertFileMention(path) {

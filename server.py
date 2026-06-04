@@ -13,6 +13,9 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import os
+import re
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -223,11 +226,82 @@ _load_into_globals()
 ensure_master_conversation()
 
 
+# ── 工作目录文件过滤（防 venv / node_modules / 缓存等淹没列表）────────────
+# 目录黑名单：遇到这些名字的子目录整个跳过递归
+_EXCLUDE_DIRS = frozenset({
+    ".venv", "venv", "env", ".env_dir",
+    "node_modules", "__pycache__",
+    ".git", ".idea", ".vscode",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
+    "dist", "build", "target",
+    ".next", ".nuxt", ".svelte-kit", ".turbo",
+    "_internal",                  # PyInstaller onedir 产物
+    ".execute_trash", ".skills_trash",
+    ".memory", ".memory_backups", ".skills_backups",
+    ".sandbox",                   # 内部对话状态
+    "models",                     # 本地模型（动辄几百 MB）
+})
+
+# 文件后缀黑名单
+_EXCLUDE_SUFFIXES = frozenset({
+    ".pyc", ".pyo", ".pyd",
+    ".class", ".o", ".obj",
+    ".tmp", ".lock", ".swp", ".swo",
+    ".log",                       # 防止日志狂刷
+})
+
+# 完整文件名黑名单
+_EXCLUDE_FILES = frozenset({
+    ".DS_Store", "Thumbs.db", "Desktop.ini",
+    ".yuki.lock", ".yuki-launcher.log",
+})
+
+
+def _file_excluded(path: Path) -> bool:
+    """单文件级别过滤（已经知道是 file 才调，dir 在 walk 时另判）。"""
+    name = path.name
+    if name in _EXCLUDE_FILES:
+        return True
+    if path.suffix.lower() in _EXCLUDE_SUFFIXES:
+        return True
+    # *.bak / *.bak2 / *.bak3 ... 累积备份
+    if name.endswith(".bak") or re.search(r"\.bak\d+$", name):
+        return True
+    return False
+
+
+def _walk_workdir(workdir: Path):
+    """生成器：遍历 workdir，跳过 _EXCLUDE_DIRS，过滤垃圾文件。
+
+    yield 元组 (rel_path: str, abs_path: Path, is_dir: bool)。
+    """
+    if not workdir.exists():
+        return
+    workdir = workdir.resolve()
+    # 用 os.walk 比 Path.rglob 快且能截断递归
+    for root, dirs, files in os.walk(workdir):
+        # 原地修改 dirs 跳过黑名单目录（os.walk 这是 idiom）
+        dirs[:] = [d for d in dirs if d not in _EXCLUDE_DIRS]
+        root_path = Path(root)
+        rel_root = root_path.relative_to(workdir)
+        # 目录本身（除 workdir 根）
+        if rel_root != Path("."):
+            yield (str(rel_root).replace("\\", "/"), root_path, True)
+        for fname in files:
+            fpath = root_path / fname
+            if _file_excluded(fpath):
+                continue
+            rel = (rel_root / fname).as_posix() if rel_root != Path(".") else fname
+            yield (rel, fpath, False)
+
+
 def _list_workdir_files(workdir: str) -> set[Path]:
+    """返回 workdir 下所有 file 的 Path set（已过滤黑名单）。
+
+    用于 new_files diff（done 事件计算 yuki 本轮生成的文件）。
+    """
     root = Path(workdir)
-    if not root.exists():
-        return set()
-    return {p for p in root.rglob("*") if p.is_file()}
+    return {abs_p for _, abs_p, is_dir in _walk_workdir(root) if not is_dir}
 
 
 def _safe_path(workdir: str, relpath: str) -> Path:
@@ -832,33 +906,104 @@ async def upload_files(tid: str, files: list[UploadFile] = File(...)):
 
 
 @app.get("/api/conversations/{tid}/files")
-async def list_files(tid: str):
-    """列出工作目录所有文件（相对路径 + 大小 + 修改时间）。
+async def list_files(tid: str, limit: int = 50):
+    """列出工作目录文件 —— 已过滤 venv/__pycache__/.git/缓存目录等。
 
-    按修改时间倒序排列，最近的在前 —— 配合前端"最近文件" chip 展示。
+    返回最近修改的 ``limit`` 个文件（默认 50）。前端浮卡 chip 用。
+
+    要完整树形 → ``GET /api/conversations/{tid}/files/tree``
+    """
+    if tid not in conversations:
+        raise HTTPException(404, "Conversation not found")
+    workdir = Path(conversations[tid]["workdir"]).resolve()
+    out = []
+    for rel, abs_p, is_dir in _walk_workdir(workdir):
+        if is_dir:
+            continue
+        try:
+            stat = abs_p.stat()
+        except OSError:
+            continue
+        out.append({"path": rel, "size": stat.st_size, "mtime": stat.st_mtime})
+    out.sort(key=lambda f: f["mtime"], reverse=True)
+    return out[:limit] if limit > 0 else out
+
+
+@app.get("/api/conversations/{tid}/files/tree")
+async def list_files_tree(tid: str):
+    """工作目录树形结构（已过滤 venv 等）。
+
+    每个节点形如:
+      {"name": "...", "path": "rel/path", "is_dir": bool,
+       "size": int, "mtime": float, "children": [...]}
+
+    目录按字典序，文件在目录之后；空目录不返回。
     """
     if tid not in conversations:
         raise HTTPException(404, "Conversation not found")
     workdir = Path(conversations[tid]["workdir"]).resolve()
     if not workdir.exists():
         return []
-    out = []
-    for p in workdir.rglob("*"):
-        if not p.is_file():
-            continue
+
+    # 收集 (rel, abs_path, is_dir, stat) 列表
+    nodes_by_path: dict[str, dict] = {}
+    for rel, abs_p, is_dir in _walk_workdir(workdir):
         try:
-            stat = p.stat()
+            stat = abs_p.stat()
         except OSError:
             continue
-        rel = str(p.relative_to(workdir)).replace("\\", "/")
-        out.append({
+        nodes_by_path[rel] = {
+            "name": abs_p.name,
             "path": rel,
-            "size": stat.st_size,
+            "is_dir": is_dir,
+            "size": 0 if is_dir else stat.st_size,
             "mtime": stat.st_mtime,
-        })
-    # 最近修改的在前
-    out.sort(key=lambda f: f["mtime"], reverse=True)
-    return out
+            "children": [] if is_dir else None,
+        }
+
+    # 把每个节点挂到父节点的 children 上
+    roots: list[dict] = []
+    for rel, node in nodes_by_path.items():
+        parent_rel = "/".join(rel.split("/")[:-1])
+        if parent_rel and parent_rel in nodes_by_path:
+            nodes_by_path[parent_rel]["children"].append(node)
+        else:
+            roots.append(node)
+
+    def _sort_recursive(nodes: list[dict]):
+        nodes.sort(key=lambda n: (not n["is_dir"], n["name"].lower()))  # 目录在前
+        for n in nodes:
+            if n["is_dir"] and n["children"]:
+                _sort_recursive(n["children"])
+
+    _sort_recursive(roots)
+    return roots
+
+
+@app.post("/api/conversations/{tid}/open")
+async def open_workdir(tid: str):
+    """用系统文件管理器打开工作目录（Windows explorer / Mac open / Linux xdg-open）。"""
+    if tid not in conversations:
+        raise HTTPException(404, "Conversation not found")
+    workdir = Path(conversations[tid]["workdir"]).resolve()
+    if not workdir.exists():
+        try:
+            workdir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise HTTPException(500, f"工作目录不存在且无法创建: {e}")
+
+    import subprocess
+    try:
+        if sys.platform == "win32":
+            # explorer.exe 返回非 0 也算成功，所以直接 Popen 不 check
+            subprocess.Popen(["explorer.exe", str(workdir)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(workdir)])
+        else:
+            subprocess.Popen(["xdg-open", str(workdir)])
+        return {"ok": True, "path": str(workdir)}
+    except Exception as e:
+        raise HTTPException(500, f"打开工作目录失败: {e}")
 
 
 @app.get("/api/conversations/{tid}/preview")

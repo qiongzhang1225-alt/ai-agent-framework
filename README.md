@@ -39,9 +39,27 @@ cp .env.example .env
 
 获取 API Key：[DeepSeek 控制台](https://platform.deepseek.com/api_keys)
 
-### 3. 下载 embedding 模型（首次）
+### 3. 下载 embedding 模型（**首次必做**）
 
-按 `models/README.md` 下载 `bge-base-zh-v1.5` 模型到 `models/bge-base-zh-v1.5/`（约 390MB）。
+> ⚠️ **不下载这个，长期记忆功能完全不可用**。会报 `bge embedding 模型不在 models/...` 错误。
+
+按 [`models/README.md`](models/README.md) 下载 `bge-base-zh-v1.5` 到 `models/bge-base-zh-v1.5/`（约 390MB，10 个文件）。
+
+**最快方法**：
+
+```bash
+# Linux/Mac 用 huggingface_hub SDK（中国大陆建议先设镜像）
+export HF_ENDPOINT=https://hf-mirror.com    # 中国大陆
+.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
+```
+
+```cmd
+# Windows
+set HF_ENDPOINT=https://hf-mirror.com
+.venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
+```
+
+或者直接到 [hf-mirror.com/BAAI/bge-base-zh-v1.5](https://hf-mirror.com/BAAI/bge-base-zh-v1.5) 浏览器逐个下载 —— 详细步骤看 `models/README.md`。
 
 ### 4. 启动
 

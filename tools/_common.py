@@ -5,9 +5,68 @@
 """
 from __future__ import annotations
 
+import os
+import shutil
+import sys
 from pathlib import Path
 
 from paths import DEFAULT_WORKDIR
+
+
+# ── frozen 模式下找真 Python 解释器（不是 yuki.exe）─────────────────────
+# 打包后 sys.executable = yuki.exe（启动器），任何 subprocess.run([sys.executable, ...])
+# 会启动 yuki.exe 子进程 → 跑 launcher.main → 撞 .yuki.lock → 弹"已启动"
+# 死循环。必须找真正的 python.exe。
+#
+# 用于：tools/execute.py (跑用户代码), tools/self_edit.py (跑测试脚本)
+_IS_FROZEN = getattr(sys, "frozen", False)
+_cached_python_exe: str | None = None
+
+
+def find_real_python() -> str | None:
+    """找一个真的 Python 解释器（非 yuki.exe）。
+
+    源码模式直接返回 sys.executable（venv 的 python.exe）。
+    frozen 模式按优先级查找：
+    1. 环境变量 YUKI_PYTHON
+    2. exe 旁的 .venv/Scripts/python.exe
+    3. PATH 中的 python / python3
+    都没有返回 None（调用方报错提示用户）。
+
+    结果会缓存（per-process）。
+    """
+    global _cached_python_exe
+
+    if not _IS_FROZEN:
+        return sys.executable
+
+    if _cached_python_exe is not None:
+        return _cached_python_exe or None
+
+    env_py = os.environ.get("YUKI_PYTHON", "").strip()
+    if env_py and Path(env_py).is_file():
+        _cached_python_exe = env_py
+        return env_py
+
+    exe_dir = Path(sys.executable).resolve().parent
+    for candidate in [
+        exe_dir / "python.exe",
+        exe_dir / ".venv" / "Scripts" / "python.exe",
+        exe_dir / "venv" / "Scripts" / "python.exe",
+        exe_dir.parent / ".venv" / "Scripts" / "python.exe",
+    ]:
+        if candidate.is_file():
+            _cached_python_exe = str(candidate)
+            return _cached_python_exe
+
+    for name in ("python", "python3"):
+        found = shutil.which(name)
+        if found and "yuki.exe" not in found.lower():
+            _cached_python_exe = found
+            return found
+
+    _cached_python_exe = ""
+    return None
 
 
 def safe_workdir_path(path: str, config: dict, *, must_exist: bool = False) -> Path:
