@@ -1413,6 +1413,39 @@
     const MODELS = {{ models|tojson }};
     const DEFAULT_MODEL = {{ default_model|tojson }};
 
+    // renderMarkdown 缓存：text → 渲染好的 sanitized HTML
+    // 切大对话（200+ 消息）时不重跑 marked + hljs + DOMPurify，从 ~3 秒降到 ~50ms
+    // 用 Map 维护插入序作 LRU，超过上限淘汰最旧（流式消息每 tick 改变 text，会
+    // 持续产生新 key，所以需要淘汰避免内存膨胀）
+    const _MD_CACHE = new Map();
+    const _MD_CACHE_MAX = 1000;
+    function _renderMarkdownCached(text) {
+      if (!text) return '';
+      const hit = _MD_CACHE.get(text);
+      if (hit !== undefined) {
+        // LRU: 访问后挪到末尾（Map 按插入序遍历，删了再 set 等于挪后）
+        _MD_CACHE.delete(text);
+        _MD_CACHE.set(text, hit);
+        return hit;
+      }
+      let html = marked.parse(text);
+      html = html.replace(
+        /<pre><code/g,
+        '<pre><button class="code-copy-btn" type="button" onclick="window.__yukiCopyCode(this)">⧉ 复制</button><code'
+      );
+      const sanitized = DOMPurify.sanitize(html, {
+        ADD_ATTR: ['target', 'onclick', 'type'],
+        ADD_TAGS: ['button'],
+      });
+      if (_MD_CACHE.size >= _MD_CACHE_MAX) {
+        // 淘汰最旧（Map 的第一个 key）
+        const firstKey = _MD_CACHE.keys().next().value;
+        _MD_CACHE.delete(firstKey);
+      }
+      _MD_CACHE.set(text, sanitized);
+      return sanitized;
+    }
+
     function chatApp() {
       return {
         // ── 状态 ──
@@ -1868,7 +1901,17 @@
           if (!resp.ok) { await this.loadConversations(); return; }
           const conv = await resp.json();
           this.currentConv = conv;
-          this.messages = conv.messages || [];
+          const incomingMsgs = conv.messages || [];
+
+          // 预热 markdown 缓存：在 messages 赋值前同步编译一遍。
+          // 大对话（200+ 消息）切换时，Alpine 后续 x-html 求值全是 O(1) 缓存命中，
+          // 避免一波 marked+hljs+DOMPurify 串行渲染撞主线程产生几秒卡顿。
+          for (const m of incomingMsgs) {
+            const t = this.stripImageRef(this.msgText(m));
+            if (t) _renderMarkdownCached(t);
+          }
+
+          this.messages = incomingMsgs;
           this.currentModel = conv.model;
           this.workdirInput = conv.workdir;
           this.editingIdx = -1;
@@ -2606,22 +2649,13 @@
         },
 
         // ── 渲染 ──
+        // renderMarkdown 委托给 _renderMarkdownCached（脚本顶部定义的全局函数）。
+        // 缓存按 text 内容查表 —— 同样 text 直接返回，不重跑 marked/hljs/DOMPurify。
+        // 子对话跳转链接格式 [→ name](#sub=id) 由 marked 渲染成标准 anchor，
+        // CSS 用 a[href^="#sub="] 选择器渲染成 chip；
+        // 全局 click delegation 拦截这些 href 转 selectConversation。
         renderMarkdown(text) {
-          if (!text) return '';
-          // 子对话跳转链接格式 [→ name](#sub=id) —— marked 直接生成标准 anchor，
-          // 不需要预处理。CSS 用 a[href^="#sub="] 选择器渲染成 chip；
-          // 全局 click delegation 拦截这些 href 转 selectConversation。
-          let html = marked.parse(text);
-          // 给每个代码块 <pre> 内注入一个可点击的复制按钮（伪元素无法接收点击事件）
-          // 按钮 onclick 调全局 __yukiCopyCode（在尾部 <script> 里定义）
-          html = html.replace(
-            /<pre><code/g,
-            '<pre><button class="code-copy-btn" type="button" onclick="window.__yukiCopyCode(this)">⧉ 复制</button><code'
-          );
-          return DOMPurify.sanitize(html, {
-            ADD_ATTR: ['target', 'onclick', 'type'],
-            ADD_TAGS: ['button'],
-          });
+          return _renderMarkdownCached(text);
         },
 
         // ── 工具 ──
