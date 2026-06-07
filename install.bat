@@ -23,6 +23,18 @@ if errorlevel 1 (
     exit /b 1
 )
 for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
+REM 版本检测：chromadb / sentence-transformers 都要求 3.10+，装在更老的版本上
+REM 会在后面 pip install 阶段炸出莫名错误，提前拦住，给清晰原因。
+python -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
+if errorlevel 1 (
+    echo   [ERROR] Python !PYVER! is too old. Need 3.10 or newer.
+    echo          chromadb / sentence-transformers / fastapi all require 3.10+.
+    echo          Install latest from: https://www.python.org/downloads/
+    echo          ^(If you have multiple Pythons, make sure 'python' on PATH
+    echo           points to the 3.10+ one, or use py -3.11 -m venv .venv^)
+    pause
+    exit /b 1
+)
 echo   OK: Python !PYVER!
 
 REM ── 2. Create .venv ──

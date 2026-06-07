@@ -20,7 +20,37 @@
 
 ## 快速开始
 
-### 1. 克隆 + 装依赖
+### 一键脚本（推荐，~5 分钟全自动）
+
+```bash
+git clone https://github.com/qiongzhang1225-alt/ai-agent-framework.git yuki
+cd yuki
+install.bat           # Windows
+# ./install.sh        # Mac / Linux
+```
+
+`install.bat` / `install.sh` 会自动：
+1. 检测 Python ≥ 3.10
+2. 建 `.venv` 虚拟环境
+3. 装全套依赖（含 chromadb / fastapi / pywebview 等）
+4. 从 `.env.example` 创建 `.env`
+5. 下载 bge-base-zh-v1.5 embedding 模型（~390MB，自动用国内镜像）
+6. 跑完整性检测告诉你哪步还差
+
+完成后：
+1. **编辑 `.env`** 填 DeepSeek API Key：[控制台](https://platform.deepseek.com/api_keys)
+2. **启动**：
+   ```bash
+   .venv\Scripts\python launcher.py     # Windows 桌面模式（推荐）
+   # .venv/bin/python launcher.py        # Mac / Linux
+   # 或 server.py 走 web 模式 → http://127.0.0.1:3616
+   ```
+
+---
+
+### 手动方案（仅故障排查 / 想精确控制时用）
+
+#### 1. 克隆 + 建 venv + 装依赖
 
 ```bash
 git clone https://github.com/qiongzhang1225-alt/ai-agent-framework.git yuki
@@ -30,28 +60,16 @@ python -m venv .venv
 # .venv/bin/pip install -r requirements.txt       # Mac / Linux
 ```
 
-### 2. 配置 API Key
+#### 2. 配置 API Key
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入你的 DeepSeek API Key
+# 编辑 .env，填入 DeepSeek API Key（https://platform.deepseek.com/api_keys）
 ```
 
-获取 API Key：[DeepSeek 控制台](https://platform.deepseek.com/api_keys)
+#### 3. 下载 embedding 模型（约 390MB）
 
-### 3. 下载 embedding 模型（**首次必做**）
-
-> ⚠️ **不下载这个，长期记忆功能完全不可用**。会报 `bge embedding 模型不在 models/...` 错误。
-
-按 [`models/README.md`](models/README.md) 下载 `bge-base-zh-v1.5` 到 `models/bge-base-zh-v1.5/`（约 390MB，10 个文件）。
-
-**最快方法**：
-
-```bash
-# Linux/Mac 用 huggingface_hub SDK（中国大陆建议先设镜像）
-export HF_ENDPOINT=https://hf-mirror.com    # 中国大陆
-.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
-```
+> ⚠️ **不下载这个长期记忆完全不可用**，会报 `bge embedding 模型不在 models/...`。
 
 ```cmd
 # Windows
@@ -59,16 +77,19 @@ set HF_ENDPOINT=https://hf-mirror.com
 .venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
 ```
 
-或者直接到 [hf-mirror.com/BAAI/bge-base-zh-v1.5](https://hf-mirror.com/BAAI/bge-base-zh-v1.5) 浏览器逐个下载 —— 详细步骤看 `models/README.md`。
+```bash
+# Linux / Mac（中国大陆建议先设镜像）
+export HF_ENDPOINT=https://hf-mirror.com
+.venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
+```
 
-### 4. 启动
+下载不动？看 [`models/README.md`](models/README.md) 的浏览器逐个下载方案（ModelScope / HF 镜像）。
+
+#### 4. 启动
 
 ```bash
-# 桌面应用模式（推荐）
-.venv\Scripts\python launcher.py
-
-# 或者：Web 模式（浏览器访问 localhost:3616）
-.venv\Scripts\python server.py
+.venv\Scripts\python launcher.py     # 桌面模式（推荐）
+.venv\Scripts\python server.py       # Web 模式
 ```
 
 ---
