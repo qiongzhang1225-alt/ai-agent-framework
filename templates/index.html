@@ -1066,7 +1066,7 @@
             placeholder="输入你的问题，Enter 发送，Shift+Enter 换行，@ 引用文件"
             rows="1"
             class="flex-1 bg-transparent resize-none px-2 py-2 text-sm text-zinc-100 placeholder-zinc-500
-                   focus:outline-none max-h-40"
+                   focus:outline-none max-h-40 overflow-y-auto"
           ></textarea>
 
           <button
@@ -1541,6 +1541,9 @@
           this.loadRecentFiles();
           // 同步主题状态（IIFE 已应用 class，这里只读）
           this.theme = window._yukiTheme ? window._yukiTheme.get() : 'dark';
+          // input 内容变化时自适应高度（覆盖 sendMessage 清空 / mention 插入
+          // / 编辑历史消息等"程序性"改 input 的场景，不靠 @input 事件）
+          this.$watch('input', () => this.$nextTick(() => this.resizeInput()));
         },
 
         // ── 主题切换 ──
@@ -1716,6 +1719,11 @@
         },
 
         bindShortcuts() {
+          // 幂等守卫：init 万一被 Alpine 调用两次，不会重复绑 window 事件
+          // （drop 监听重复绑过 → 同一拖放触发两次 addFiles → 上传出现两份）
+          if (this._shortcutsBound) return;
+          this._shortcutsBound = true;
+
           // 全局键盘快捷键
           document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'n') {
@@ -2529,14 +2537,24 @@
         },
 
         // ── 文件上传 ──
+        // 同名 + 同大小 + 同修改时间 视为同一个文件，防止 drop / change / paste
+        // 等多事件路径意外重复添加（之前 bug: 上传一个文件 workdir 里出现两份）
+        _fileKey(f) { return `${f.name}|${f.size}|${f.lastModified}`; },
+
         addFiles(fileList) {
+          const existing = new Set(this.pendingFiles.map(p => this._fileKey(p)));
           for (const f of fileList) {
+            const key = this._fileKey(f);
+            if (existing.has(key)) continue;
+            existing.add(key);
             this.pendingFiles.push(f);
           }
         },
 
         async addImages(fileList) {
           // 把图片读成 base64 data URL 暂存到 pendingImages
+          // 本批内同文件去重（防止单次 drop/paste 把同图带两份进来）
+          const seenInBatch = new Set();
           for (const f of fileList) {
             if (!f.type.startsWith('image/')) {
               alert(`${f.name} 不是图片，跳过`);
@@ -2546,6 +2564,9 @@
               alert(`${f.name} 超过 10MB，跳过（MiMo 单图上限 50MB，但 base64 编码后会膨胀 ~33%）`);
               continue;
             }
+            const key = this._fileKey(f);
+            if (seenInBatch.has(key)) continue;
+            seenInBatch.add(key);
             try {
               const url = await this.readAsDataURL(f);
               this.pendingImages.push(url);
@@ -2889,8 +2910,20 @@
           });
         },
 
+        // 输入框自适应高度（最多 max-h-40 = 160px，超出后内部滚动）
+        // 每次 input 变化 / sendMessage 清空 / mention 插入路径都该调
+        resizeInput() {
+          const el = this.$refs.inputEl;
+          if (!el) return;
+          // 先 reset 才能让 scrollHeight 真实反映内容（不会被旧 height 锁住）
+          el.style.height = 'auto';
+          // 最大跟 CSS max-h-40 保持一致；超过部分由 overflow-y-auto 内部滚动
+          el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+        },
+
         onInputChange() {
-          // 监听 input 事件，检测光标前是否是 @xxx 模式
+          // 监听 input 事件，先自适应高度，再检测 @mention
+          this.resizeInput();
           const el = this.$refs.inputEl;
           if (!el) { this.mentionOpen = false; return; }
           const pos = el.selectionStart;

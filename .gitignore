@@ -52,5 +52,9 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+# ── 发行 zip（release.bat 产物）/ 临时调试脚本，别入 git ─────────────
+/yuki-source-*.zip
+/.test_*.py
+
 # ── 用户的个人背景图 / 图标（默认带的图保留在 git 里，覆盖时用户自己改）
 # 不忽略 assets/，因为默认带的图属于"开箱即用"内容
