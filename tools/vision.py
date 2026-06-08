@@ -1,12 +1,25 @@
-"""视觉识别工具：DeepSeek 调 MiMo 看图（orchestrator + specialist 模式）。
+"""视觉识别工具：DeepSeek 调任意 OpenAI 兼容视觉模型看图（orchestrator + specialist 模式）。
 
 设计：
 - 主对话由 DeepSeek 主导（不支持视觉）
 - 用户上传图片时，server 把图存到 ``.sandbox/_meta/<tid>/images/<image_id>.<ext>``
   并在 user message 文本里加 ``[已上传图片：img_xxx]`` 占位
 - DeepSeek 看到占位 → 主动调 ``vision_describe(image_id, question)``
-- 本工具内部用 MiMoClient 调小米 MiMo 多模态 API 拿描述返回给 DeepSeek
+- 本工具内部用 OpenAI 兼容协议调**任意视觉模型**拿描述返回给 DeepSeek
 - DeepSeek 整合描述回答用户
+
+视觉模型选择（环境变量驱动）：
+- ``VISION_BASE_URL`` / ``VISION_API_KEY`` / ``VISION_MODEL`` 三个 env 配齐 → 用它
+- 任一未配 → 自动 fallback 到 MiMo（向后兼容老用户的 ``MIMO_API_KEY``）
+- 任何 OpenAI Vision 协议兼容的端点都能直连，常见可选:
+  - OpenAI: ``https://api.openai.com/v1`` + ``gpt-4o-mini`` / ``gpt-4o``
+  - 火山方舟 / 豆包: ``https://ark.cn-beijing.volces.com/api/v3`` + ``doubao-vision-pro-32k``
+  - 通义千问 VL: ``https://dashscope.aliyuncs.com/compatible-mode/v1`` + ``qwen-vl-max``
+  - GLM-4V: ``https://open.bigmodel.cn/api/paas/v4`` + ``glm-4v``
+  - 硅基流动: ``https://api.siliconflow.cn/v1`` + ``Qwen/Qwen2-VL-72B-Instruct``
+  - OpenRouter: ``https://openrouter.ai/api/v1`` + ``anthropic/claude-3.5-sonnet``
+  - Ollama 本地: ``http://localhost:11434/v1`` + ``llava`` / ``qwen2-vl``
+  - 小米 MiMo（默认）: ``MIMO_API_KEY`` 已配则秒用
 
 好处：
 - DeepSeek 历史里永远是纯文本，不会再 400
@@ -17,6 +30,7 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import os
 from pathlib import Path
 
 from ai_agent import tool
@@ -30,8 +44,39 @@ VISION_IMG_EXTS = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".avif",
 })
 
-# 默认视觉模型（含图片输入能力）
-DEFAULT_VISION_MODEL = "mimo-v2.5"
+
+def _resolve_vision_config() -> tuple[str, str, str]:
+    """解析视觉模型配置：(base_url, api_key, model)。
+
+    优先级：
+    1. VISION_BASE_URL + VISION_API_KEY + VISION_MODEL 三件套全配齐 → 用
+    2. 任一缺失 → 回退到 MIMO_API_KEY + mimo-v2.5（向后兼容）
+
+    任何环节缺关键凭据会抛 ValueError，让上层报错给主人。
+    """
+    vbu = (os.getenv("VISION_BASE_URL") or "").strip().rstrip("/")
+    vak = (os.getenv("VISION_API_KEY") or "").strip()
+    vmo = (os.getenv("VISION_MODEL") or "").strip()
+
+    # 三件套全齐 → 走自定义视觉端点
+    if vbu and vak and vmo:
+        return vbu, vak, vmo
+
+    # 否则回退 MiMo（保持向后兼容）
+    from ai_agent.llm import MIMO_BASE
+    mimo_key = (os.getenv("MIMO_API_KEY") or "").strip()
+    if not mimo_key:
+        raise ValueError(
+            "视觉模型未配置。两个选项：\n"
+            "  (推荐) 在 .env 加: VISION_BASE_URL / VISION_API_KEY / VISION_MODEL\n"
+            "         任何 OpenAI 兼容视觉端点都行（OpenAI / 豆包 / Qwen-VL / GLM-4V / Ollama 等）\n"
+            "  (兼容) 在 .env 加: MIMO_API_KEY=<your_key>"
+        )
+    return MIMO_BASE, mimo_key, "mimo-v2.5"
+
+
+# 默认视觉模型（兼容老引用：解析失败时仍返字符串）
+DEFAULT_VISION_MODEL = os.getenv("VISION_MODEL") or "mimo-v2.5"
 
 
 def _images_dir(thread_id: str) -> Path:
@@ -74,20 +119,17 @@ def _resolve_workdir_image(workdir: Path, raw_path: str) -> Path | None:
         return None
 
 
-def _call_mimo_sync(data_url: str, question: str, model: str = DEFAULT_VISION_MODEL) -> str:
-    """urllib 同步调用 MiMo API（httpx 连接超时时的回退方案）。
+def _call_vision_sync(data_url: str, question: str) -> str:
+    """urllib 同步调用视觉端点（httpx 连接超时时的回退方案）。
 
-    直接 POST JSON，非流式，返回完整回答文本。
+    用 ``_resolve_vision_config()`` 决定 base_url / api_key / model，
+    POST OpenAI 兼容的 chat/completions 端点（非流式），返回完整回答文本。
     """
     import json as _json
-    import os as _os
     import ssl as _ssl
     import urllib.request as _urllib
-    from ai_agent.llm import MIMO_BASE
 
-    key = _os.getenv("MIMO_API_KEY")
-    if not key:
-        raise ValueError("MIMO_API_KEY 未设置")
+    base_url, api_key, model = _resolve_vision_config()
 
     payload = _json.dumps({
         "model": model,
@@ -102,10 +144,10 @@ def _call_mimo_sync(data_url: str, question: str, model: str = DEFAULT_VISION_MO
     }).encode("utf-8")
 
     req = _urllib.Request(
-        f"{MIMO_BASE}/chat/completions",
+        f"{base_url}/chat/completions",
         data=payload,
         headers={
-            "Authorization": f"Bearer {key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
     )
@@ -141,9 +183,12 @@ async def vision_describe(
     question: str,
     config: dict,
 ) -> str:
-    """让视觉模型（MiMo）看图回答**具体问题**，返回详细的中文描述 / 答案。
+    """让视觉模型看图回答**具体问题**，返回详细的中文描述 / 答案。
 
     主对话是 DeepSeek（看不到图），所以你要看图就必须调本工具。
+    视觉模型由 .env 决定（``VISION_BASE_URL``/``VISION_API_KEY``/``VISION_MODEL``
+    三件套，未配则回退 MiMo），支持任何 OpenAI 兼容视觉端点。
+
     支持**两种**图片来源：
 
     1. **用户上传的图片**（``[已上传图片：img_xxxxxxxx]`` 占位）：
@@ -177,7 +222,7 @@ async def vision_describe(
                   坏例："这是什么"（太宽泛）
 
     返回：
-        MiMo 的描述 / 答案（中文）。当作你"亲眼看到"的事实使用，
+        视觉模型的描述 / 答案（中文）。当作你"亲眼看到"的事实使用，
         用你自己的话总结回答用户 —— **不要直接贴整段描述**。
     """
     cfg = (config or {}).get("configurable", {}) if config else {}
@@ -215,29 +260,33 @@ async def vision_describe(
 
     question = (question or "").strip() or "请用中文详细描述这张图，包括所有可见元素、文字、颜色、风格。"
 
-    # 调 MiMo
+    # 调视觉模型（DeepSeekClient 协议层就是 OpenAI 兼容流式，
+    # 任何 vision 端点都能直连，只是 base_url/key/model 不同）
     try:
-        from ai_agent import MiMoClient, Message
+        from ai_agent import DeepSeekClient, Message
     except Exception as e:
-        return f"无法导入 MiMoClient: {e}"
+        return f"无法导入 DeepSeekClient: {e}"
 
     try:
         data_url = _image_to_data_url(path)
     except Exception as e:
         return f"读取图片失败 ({path.name}): {e}"
 
-    # 优先用 MiMoClient（httpx 异步流式），失败回退到 urllib 同步调用
+    # 解析视觉端点配置
+    try:
+        vbase, vkey, vmodel = _resolve_vision_config()
+    except ValueError as e:
+        return str(e)
+
+    # 优先用 httpx 流式，失败回退到 urllib 同步调用
     text: str | None = None
     error_msg: str | None = None
 
-    # 方式 1：MiMoClient（httpx 流式）
+    # 方式 1：httpx 流式
     try:
-        client = MiMoClient(model=DEFAULT_VISION_MODEL)
+        client = DeepSeekClient(model=vmodel, api_key=vkey, api_base=vbase)
     except ValueError as e:
-        error_msg = (
-            f"MiMo 未配置：{e}。"
-            "请在 .env 里加 MIMO_API_KEY=<your_key>。"
-        )
+        error_msg = f"视觉模型初始化失败：{e}"
     else:
         msgs = [Message(role="user", content=[
             {"type": "text", "text": question},
@@ -265,12 +314,12 @@ async def vision_describe(
     # 方式 2：urllib 同步回退（httpx 在某些网络环境下连接超时）
     if text is None and error_msg is not None:
         try:
-            text = _call_mimo_sync(data_url, question)
+            text = _call_vision_sync(data_url, question)
             error_msg = None  # 回退成功，清除错误
         except Exception as e:
-            error_msg = f"MiMo 调用失败（httpx + urllib 均失败）：{e}"
+            error_msg = f"视觉模型调用失败（httpx + urllib 均失败，用 {vmodel}@{vbase}）：{e}"
 
     if error_msg and text is None:
         return error_msg
 
-    return (text or "").strip() or "（MiMo 返回空，可能图像无法识别）"
+    return (text or "").strip() or f"（{vmodel} 返回空，可能图像无法识别）"
