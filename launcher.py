@@ -474,7 +474,59 @@ def _warm_up_in_background(port: int, on_ready) -> None:
         except Exception as e:
             print(f"[warmup] 切换主 URL 失败: {e}", file=sys.stderr)
 
+        # 微信 iLink Bot 桥接自动启动（opt-in）
+        # 条件: YUKI_WECHAT_AUTOSTART=1 且本地 .wechat_creds.json 存在
+        # 第一次使用：先单独跑 wechat_bridge.bat 扫码 → 凭证缓存 → 之后 launcher 自动起
+        try:
+            _maybe_start_wechat_bridge()
+        except Exception as e:
+            print(f"[wechat] 桥接启动失败（不影响主程序）: {e}", file=sys.stderr)
+
     threading.Thread(target=_run, daemon=True, name="warmup").start()
+
+
+def _maybe_start_wechat_bridge() -> None:
+    """opt-in 启动微信桥接子进程。
+
+    设计:
+    - 子进程而非线程: bot.run() 会接管 stdout 长轮询，独立进程更干净
+    - 守护进程: launcher 退出 = bridge 也死
+    - 只在凭证已缓存时启动（首次必须用户在 wechat_bridge.bat 里扫码）
+    """
+    if os.environ.get("YUKI_WECHAT_AUTOSTART", "").strip() not in ("1", "true", "yes", "on"):
+        return
+    creds = APP_DIR / ".wechat_creds.json"
+    if not creds.exists():
+        print("[wechat] YUKI_WECHAT_AUTOSTART=1 但凭证不存在，跳过", file=sys.stderr)
+        print("[wechat] 首次请手动跑 wechat_bridge.bat 扫码登录", file=sys.stderr)
+        return
+    bridge_py = APP_DIR / "wechat_bridge.py"
+    if not bridge_py.exists():
+        print(f"[wechat] wechat_bridge.py 不在 {APP_DIR}", file=sys.stderr)
+        return
+
+    # 解析 .venv python（frozen 模式下用 sys.executable）
+    if getattr(sys, "frozen", False):
+        py_exe = sys.executable
+    else:
+        win_py = APP_DIR / ".venv" / "Scripts" / "python.exe"
+        unix_py = APP_DIR / ".venv" / "bin" / "python"
+        py_exe = str(win_py if win_py.exists() else unix_py if unix_py.exists() else sys.executable)
+
+    import subprocess as _sp
+    global _wechat_proc
+    _wechat_proc = _sp.Popen(
+        [py_exe, str(bridge_py)],
+        cwd=str(APP_DIR),
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        creationflags=_sp.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        stdout=_sp.DEVNULL,
+        stderr=_sp.DEVNULL,
+    )
+    print(f"[wechat] 桥接已启动 (pid={_wechat_proc.pid})", file=sys.stderr)
+
+
+_wechat_proc = None
 
 
 # ── 主流程 ───────────────────────────────────────────────────────────────
@@ -625,6 +677,16 @@ def main() -> int:
         webview.start(**start_kwargs)
 
     finally:
+        # 优雅关掉微信桥接子进程（若启动过）
+        if _wechat_proc is not None:
+            try:
+                _wechat_proc.terminate()
+                _wechat_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    _wechat_proc.kill()
+                except Exception:
+                    pass
         stop_tray()
         release_lock()
 

@@ -813,6 +813,118 @@ async def chat(req: ChatRequest, request: Request):
     return EventSourceResponse(event_gen())
 
 
+# ── 微信 iLink Bot 桥接入口（非流式，给 wechat_bridge.py 调）────────────────
+
+class WechatChatRequest(BaseModel):
+    user_id: str                # 微信用户 ID（xxx@im.wechat 形式）
+    text: str                   # 用户原文
+    conv_id: str | None = None  # 默认走 master_yuki；显式传可指定
+
+
+@app.post("/api/wechat_chat")
+async def wechat_chat(req: WechatChatRequest):
+    """微信桥接专用入口：非流式，一次性返回完整回复。
+
+    跟 /api/chat 的差异：
+    - 不是 SSE，是普通 JSON 响应
+    - 默认路由到 master 对话（共享桌面端记忆）
+    - user message 前缀 ``[微信 来自 xxx]`` 让 yuki 知道这是微信渠道
+    - 收集 astream 全部 delta 合成最终 reply 文本返回
+
+    body:
+        {"user_id": "<wechat user id>", "text": "<用户消息>",
+         "conv_id": "<可选，默认 master_yuki>"}
+
+    响应:
+        {"reply": "<yuki 回复文本>", "truncated": bool}
+        失败时 HTTP 4xx/5xx + {"error": "..."}
+    """
+    conv_id = (req.conv_id or "").strip() or MASTER_CONV_ID
+    if conv_id not in conversations:
+        # master 不存在则兜底创建（确保启动后第一条微信能用）
+        if conv_id == MASTER_CONV_ID:
+            ensure_master_conversation()
+        if conv_id not in conversations:
+            raise HTTPException(404, f"对话 {conv_id} 不存在")
+
+    conv = conversations[conv_id]
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(400, "text 不能为空")
+
+    # user_id 脱敏取前 8 位作为来源标识
+    short_uid = (req.user_id or "?")[:8] or "?"
+    prefixed_text = f"[微信 来自 {short_uid}] {text}"
+
+    # append user message
+    from datetime import datetime as _dt
+    user_msg: dict[str, Any] = {
+        "role": "user",
+        "content": prefixed_text,
+        "ts": _dt.now().isoformat(timespec="seconds"),
+        "_via": "wechat",   # 标记来源（前端 / audit 用得着）
+    }
+    conv["messages"].append(user_msg)
+    _checkpoint.save(conv["id"], conv)
+
+    # 反序列化历史，跑 agent
+    history: list[Message] = [message_from_dict(m) for m in conv["messages"]]
+    agent_obj = get_agent_for_conv(conv)
+
+    cfg = {
+        "thread_id": conv["id"],
+        "workdir": conv["workdir"],
+        "conv_kind": conv.get("kind", "standalone"),
+        "sub_level": conv.get("sub_level"),
+        "parent_id": conv.get("parent_id"),
+        # 注意：不注 _event_emitter — 微信侧没有 SSE，ask_user 会降级到
+        # "在文本里给用户提示，等下一轮回答"
+    }
+
+    new_messages: list[Message] = []
+    truncated = False
+    truncated_reason = ""
+    error_msg = ""
+
+    try:
+        async for ev in agent_obj.astream(history, config=cfg):
+            etype = ev.get("type")
+            if etype == "done":
+                new_messages = ev["new_messages"]
+                if ev.get("truncated"):
+                    truncated = True
+                    truncated_reason = ev.get("reason", "")
+            elif etype == "error":
+                error_msg = ev.get("error", "未知错误")
+                break
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {e}"
+
+    if error_msg and not new_messages:
+        raise HTTPException(500, f"yuki 执行失败: {error_msg}")
+
+    # 持久化 new_messages
+    from datetime import datetime as _dt2
+    _now_ts = _dt2.now().isoformat(timespec="seconds")
+    for m in new_messages:
+        md = message_to_dict(m)
+        md["ts"] = _now_ts
+        conv["messages"].append(md)
+    if truncated:
+        conv["truncated"] = True
+        conv["truncated_reason"] = truncated_reason
+    _checkpoint.save(conv["id"], conv)
+
+    # 取最后一条 assistant 文本
+    reply = ""
+    for m in reversed(new_messages):
+        if m.role == "assistant":
+            reply = m.content or ""
+            break
+
+    return {"reply": reply, "truncated": truncated}
+
+
 # ── 命令取消 ──────────────────────────────────────────────────────────────────
 
 class CancelCommandRequest(BaseModel):

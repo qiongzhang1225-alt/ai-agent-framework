@@ -41,3 +41,8 @@ pyinstaller>=6.0          # 仅打包时用，运行可不装
 # 编程工具支持（tools/coding.py 的 lint / format / run_tests 用）
 ruff>=0.7                 # 静态检查 + 格式化
 pytest>=8.0               # 测试 runner
+
+# 微信 iLink Bot 桥接（可选）
+# wechat_bridge.py 用；不开微信桥接可不装，install.bat 默认装
+# 腾讯官方 ClawBot 协议 Python SDK（合法接入，零封号风险）
+weixin-ilink>=0.3.5
