@@ -107,6 +107,34 @@ build.bat          # Windows
 
 ---
 
+## 升级到新版本
+
+```bash
+update.bat         # Windows
+./update.sh        # Mac / Linux
+```
+
+脚本自动检测安装方式：
+
+- **git clone 用户**：`git pull` + 升级 pip 依赖（一气呵成）
+- **zip 解压用户**：脚本会提示去 [Releases 页](https://github.com/qiongzhang1225-alt/ai-agent-framework/releases/latest)下新 zip 覆盖解压，再回来按 Y 完成 pip 升级
+
+**用户数据永远不会丢**（`.gitignore` 排除了所有数据目录）：
+
+| 永远保留 | 用途 |
+|---|---|
+| `.env` | API key 配置 |
+| `.sandbox/` | 所有对话历史 |
+| `.memory/` | 长期记忆 ChromaDB |
+| `models/` | bge embedding 模型（390MB）|
+| `.venv/` | Python 虚拟环境 |
+| `skills/` | 你的自定义技能 |
+| `assets/background.*` | 你换的背景图 |
+
+升完重启 yuki 即生效。如果你用编译版 yuki.exe（不是源码），还要再跑一次 `build.bat` 让新代码进 exe。
+
+---
+
 ## 切换角色卡
 
 默认角色是长门有希。要换：
