@@ -53,12 +53,11 @@ META_ROOT = PROJECT_ROOT / ".sandbox" / "_meta"
 MODELS: dict[str, str] = {
     "deepseek-v4-flash": "DeepSeek V4 Flash",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
-    "mimo-v2.5": "MiMo v2.5（视觉）",
-    "mimo-v2.5-pro": "MiMo v2.5 Pro",
 }
 DEFAULT_MODEL = "deepseek-v4-flash"
-# 注：视觉能力通过 vision_describe 工具调 MiMo 实现（DeepSeek 主导 + MiMo 识别），
-# 不再有"自动切换模型"逻辑（详见 tools/vision.py 注释）。
+# 注：视觉能力通过 vision_describe 工具调任意 OpenAI 兼容视觉端点
+# （由 .env 的 VISION_BASE_URL / VISION_API_KEY / VISION_MODEL 配置），
+# 不暴露在主对话模型下拉里。详见 tools/vision.py 注释。
 
 # ── App ──────────────────────────────────────────────────────────────────────
 
@@ -132,7 +131,13 @@ def get_agent_for_conv(conv: dict):
 
     若未来要优化可以加 LLM cache，但实测当前性能足够。
     """
-    return create_agent(conv.get("model", DEFAULT_MODEL), conv=conv)
+    model = conv.get("model") or DEFAULT_MODEL
+    # 兼容老对话：之前选过 mimo-* 的 conv 现在主模型只有 DeepSeek 两档，
+    # 静默迁移到默认 flash，避免 chat 时调 DeepSeek API 用错 model 名直接 400。
+    if model not in MODELS:
+        model = DEFAULT_MODEL
+        conv["model"] = model
+    return create_agent(model, conv=conv)
 
 
 # 会话：{thread_id: {id, name, messages, workdir, model}}

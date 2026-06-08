@@ -14,16 +14,11 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from dotenv import load_dotenv
 
-from ai_agent import Agent, DeepSeekClient, MiMoClient, Message
+from ai_agent import Agent, DeepSeekClient, Message
 # 触发 tools/*.py 的 @tool 装饰器执行，把内置工具注册到 ai_agent.tools._REGISTRY
 # 同时 tools.skills 会扫描并加载 skills/*.py 持久化技能
 import tools  # noqa: F401
 from paths import PROJECT_ROOT, PROMPTS_DIR
-
-# model 路由：哪些 model id 用 MiMoClient（而非默认 DeepSeekClient）
-MIMO_MODELS = frozenset({
-    "mimo-v2.5", "mimo-v2.5-pro", "mimo-v2-omni", "mimo-v2-pro",
-})
 
 load_dotenv()
 
@@ -167,11 +162,12 @@ def _full_prompt(conv: dict | None = None) -> str:
 
 
 def create_agent(model: str = "deepseek-v4-flash", conv: dict | None = None) -> Agent:
-    """创建自建 Agent 实例，按 model 名自动路由 LLM 客户端。
+    """创建自建 Agent 实例，默认用 DeepSeek 主对话。
 
-    - ``mimo-*`` 系列 → MiMoClient（小米 MiMo，OpenAI 兼容，支持多模态）
-    - 其他       → DeepSeekClient（DeepSeek 默认）
-    两者协议一致，仅 base_url + api_key 不同。
+    主对话只用 DeepSeek（``deepseek-v4-flash`` / ``deepseek-v4-pro``）。
+    视觉识别通过 ``vision_describe`` 工具独立调任意 OpenAI 兼容视觉
+    端点（``VISION_BASE_URL`` / ``VISION_API_KEY`` / ``VISION_MODEL``
+    三件套或回退 MIMO_API_KEY），不暴露在主模型选择里。
 
     - reasoning_content 处理已内建到 ``Message.to_openai()``
     - tools 动态绑定（每次 astream 从 _REGISTRY 拉取）
@@ -183,10 +179,7 @@ def create_agent(model: str = "deepseek-v4-flash", conv: dict | None = None) -> 
     """
     from audit import log_tool_event
 
-    if model in MIMO_MODELS:
-        llm = MiMoClient(model=model, temperature=0.7)
-    else:
-        llm = DeepSeekClient(model=model, temperature=0.7)
+    llm = DeepSeekClient(model=model, temperature=0.7)
     return Agent(
         llm=llm,
         system_prompt=_full_prompt(conv=conv),
