@@ -94,6 +94,35 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 ---
 
+## 🔄 升级到新版本（已经装过 yuki 的用户必读）
+
+```bash
+update.bat         # Windows
+./update.sh        # Mac / Linux
+```
+
+脚本自动检测你的安装方式，做对的事：
+
+- **git clone 用户**：自动 `git pull` + `pip install -r requirements.txt --upgrade`，一气呵成
+- **zip 解压用户**：脚本提示你去 [Releases 页](https://github.com/qiongzhang1225-alt/ai-agent-framework/releases/latest)下载新 zip 覆盖解压，回来按 Y 完成 pip 依赖升级
+
+**你的数据永远不会丢**（`.gitignore` 排除了所有数据目录，新 zip 里不含这些）：
+
+| 永远保留 | 用途 |
+|---|---|
+| `.env` | API key 配置 |
+| `.sandbox/` | 所有对话历史 |
+| `.memory/` | 长期记忆 ChromaDB |
+| `models/` | bge embedding 模型（390MB，不用重下）|
+| `.venv/` | Python 虚拟环境（不用重装包）|
+| `skills/` | 你的自定义技能 |
+| `.wechat_creds.json` | 微信桥接凭证（不用重扫码）|
+| `assets/background.*` | 你换的背景图 |
+
+**升完重启 yuki 即生效**。如果你用编译版 `yuki.exe`（不是源码），还要再跑一次 `build.bat` 让新代码进 exe（约 1-3 分钟）。
+
+---
+
 ## 打包成桌面 exe
 
 ```bash
@@ -104,34 +133,6 @@ build.bat          # Windows
 产出 `yuki.exe` + `_internal/`（onedir 模式，启动 3-5 秒）。
 
 详见 [DESKTOP_BUILD.md](DESKTOP_BUILD.md)。
-
----
-
-## 升级到新版本
-
-```bash
-update.bat         # Windows
-./update.sh        # Mac / Linux
-```
-
-脚本自动检测安装方式：
-
-- **git clone 用户**：`git pull` + 升级 pip 依赖（一气呵成）
-- **zip 解压用户**：脚本会提示去 [Releases 页](https://github.com/qiongzhang1225-alt/ai-agent-framework/releases/latest)下新 zip 覆盖解压，再回来按 Y 完成 pip 升级
-
-**用户数据永远不会丢**（`.gitignore` 排除了所有数据目录）：
-
-| 永远保留 | 用途 |
-|---|---|
-| `.env` | API key 配置 |
-| `.sandbox/` | 所有对话历史 |
-| `.memory/` | 长期记忆 ChromaDB |
-| `models/` | bge embedding 模型（390MB）|
-| `.venv/` | Python 虚拟环境 |
-| `skills/` | 你的自定义技能 |
-| `assets/background.*` | 你换的背景图 |
-
-升完重启 yuki 即生效。如果你用编译版 yuki.exe（不是源码），还要再跑一次 `build.bat` 让新代码进 exe。
 
 ---
 
