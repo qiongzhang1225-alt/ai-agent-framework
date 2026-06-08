@@ -47,8 +47,37 @@ import requests
 
 # ── 配置 ────────────────────────────────────────────────────────────────────
 
-HERE = Path(__file__).resolve().parent
+# 注意 frozen 模式: __file__ 在 _internal/ 里，不是 yuki.exe 旁边。
+# 真正的数据目录（凭证 / 日志）应该跟着 yuki.exe，不能跟着模块文件，否则:
+# 1) 凭证存在但桥接找不到 → 误以为没扫码 → 卡在扫码路径
+# 2) --noconsole 时 print 到无 → 用户完全看不到出错原因
+if getattr(sys, "frozen", False):
+    # 跟 paths.py 的 _resolve_data_root 同思路：sys.executable 旁
+    HERE = Path(sys.executable).resolve().parent
+else:
+    HERE = Path(__file__).resolve().parent
 CREDS_PATH = HERE / ".wechat_creds.json"
+LOG_PATH = HERE / ".wechat_bridge.log"
+
+
+def _setup_frozen_logging() -> None:
+    """frozen + --noconsole 时把 stdout/stderr 重定向到日志文件。
+
+    yuki.exe 跑桥接线程时没控制台，print 写到无（或抛 ValueError if sys.stdout is None）。
+    重定向到 .wechat_bridge.log，主人想看就 tail 这个文件。
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        f = open(LOG_PATH, "a", encoding="utf-8", buffering=1)  # line-buffered
+        sys.stdout = f
+        sys.stderr = f
+        # 标记本次启动
+        import datetime as _dt
+        f.write(f"\n=== {_dt.datetime.now().isoformat()} bridge thread started ===\n")
+        f.flush()
+    except Exception:
+        pass  # 日志开不了也别让桥接挂
 
 
 def _safe_api_base() -> str:
@@ -233,6 +262,7 @@ def _post_yuki(user_id: str, text: str) -> Optional[str]:
 # ── 主流程 ──────────────────────────────────────────────────────────────────
 
 def main() -> int:
+    _setup_frozen_logging()
     print("=" * 55)
     print("  yuki × 微信 iLink Bot 桥接")
     print("=" * 55)
