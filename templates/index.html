@@ -1544,6 +1544,11 @@
           // input 内容变化时自适应高度（覆盖 sendMessage 清空 / mention 插入
           // / 编辑历史消息等"程序性"改 input 的场景，不靠 @input 事件）
           this.$watch('input', () => this.$nextTick(() => this.resizeInput()));
+
+          // 后台轮询当前对话有没有新消息（其他端 push 进来 — 微信桥接 /
+          // 多窗口 / 后续可能的 push 通道等）。每 4 秒一次。
+          // 跳过条件：当前在 streaming / 窗口不可见 / 没选中对话。
+          setInterval(() => this.pollCurrentConv(), 4000);
         },
 
         // ── 主题切换 ──
@@ -1957,6 +1962,51 @@
           this.loadRecentFiles();
           this.loadTodos();
           this.scrollToBottom();
+        },
+
+        async pollCurrentConv() {
+          // 后台轮询：检测外部（微信桥接 / 其他端）写进 master 对话的新消息
+          // 跳过条件：未选对话 / 当前在流 / 窗口不可见
+          if (!this.currentId) return;
+          if (this.streaming) return;
+          if (typeof document !== 'undefined' && document.hidden) return;
+          const sentConv = this.conversations.find(c => c.id === this.currentId);
+          if (sentConv?._isStreaming) return;
+
+          try {
+            const resp = await fetch(`/api/conversations/${this.currentId}`);
+            if (!resp.ok) return;
+            const conv = await resp.json();
+            const newMsgs = conv.messages || [];
+
+            // 长度变了 = 一定有新消息（消息只追加不删除）
+            // 长度相同但最后一条 ts 不一样 = 末尾消息被替换（极少见，但兜底）
+            const oldLen = this.messages.length;
+            const newLen = newMsgs.length;
+            const lastOldTs = oldLen ? (this.messages[oldLen - 1].ts || "") : "";
+            const lastNewTs = newLen ? (newMsgs[newLen - 1].ts || "") : "";
+            if (newLen === oldLen && lastOldTs === lastNewTs) return;
+
+            // 更新前判断"用户是不是已经在底部附近"，决定要不要 auto-scroll
+            // 避免用户翻历史时被强拉回底
+            let stickToBottom = true;
+            const el = this.$refs.messagesEl;
+            if (el) {
+              const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+              stickToBottom = distFromBottom < 120;   // 离底 < 120px 算"在底部"
+            }
+
+            // 有更新 — 预热新消息的 markdown 缓存
+            for (const m of newMsgs.slice(oldLen)) {
+              const t = this.stripImageRef(this.msgText(m));
+              if (t) _renderMarkdownCached(t);
+            }
+            this.currentConv = conv;
+            this.messages = newMsgs;
+            if (stickToBottom) this.scrollToBottom();
+          } catch (e) {
+            // 静默：网络抖动 / server 临时不可用都不该打断 UX
+          }
         },
 
         async loadTodos() {
