@@ -38,11 +38,11 @@ from typing import Optional
 # weixin-ilink SDK
 try:
     from weixin_ilink import WeixinBot
-    from weixin_ilink.markdown import filter_markdown
 except ImportError:
     print("[ERROR] weixin-ilink 未安装。运行: pip install weixin-ilink", file=sys.stderr)
     sys.exit(1)
 
+import re
 import requests
 
 # ── 配置 ────────────────────────────────────────────────────────────────────
@@ -99,15 +99,37 @@ def _is_allowed(user_id: str) -> bool:
 
 
 def _to_plain_text(md: str) -> str:
-    """微信不渲染 markdown。用 SDK 自带 filter_markdown 去标记。
+    """微信不渲染 markdown，转成 WeChat-friendly 纯文本。
 
-    保留段落 / 换行 / 中文标点 / URL；去掉 ** / * / # / ``` 等标记字符。
-    失败时退回原文（不阻塞回复）。
+    SDK 自带的 filter_markdown 几乎是 no-op（只去单星号斜体），其他标记
+    （**加粗** / # 标题 / `code` / 代码块 / - 列表 / [链接]）一律保留 ——
+    手机端看到一堆 ** ## - ``` 符号体验差。这里自己做完整转换。
+
+    规则:
+    - 三反引号代码块 → 只留内容（去 fence + 语言标签）
+    - 行内 `code` → code
+    - **加粗** / __加粗__ → 加粗
+    - *斜体* / _斜体_ → 斜体（避免误删 **）
+    - # 标题 → 标题（去 # 号）
+    - - / * / + 列表 → • 列表（• 在微信渲染干净）
+    - [text](url) → text（url）— 保留可点击 / 可复制
+    - 折叠 ≥3 个连续换行
     """
-    try:
-        return filter_markdown(md or "").strip()
-    except Exception:
-        return (md or "").strip()
+    if not md:
+        return ""
+    s = md
+    s = re.sub(r"```(?:[a-zA-Z0-9_+-]*)\n?", "", s)
+    s = s.replace("```", "")
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    s = re.sub(r"\*\*([^*\n]+?)\*\*", r"\1", s)
+    s = re.sub(r"__([^_\n]+?)__", r"\1", s)
+    s = re.sub(r"(?<!\*)\*([^*\n]+?)\*(?!\*)", r"\1", s)
+    s = re.sub(r"(?<![_a-zA-Z0-9])_([^_\n]+?)_(?![_a-zA-Z0-9])", r"\1", s)
+    s = re.sub(r"^[#]{1,6}\s+", "", s, flags=re.MULTILINE)
+    s = re.sub(r"^(\s*)[-*+]\s+", r"\1• ", s, flags=re.MULTILINE)
+    s = re.sub(r"\[([^\]\n]+)\]\(([^)\n]+)\)", r"\1（\2）", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
 
 
 def _chunk(text: str, size: int = CHUNK_SIZE) -> list[str]:
@@ -222,18 +244,31 @@ def main() -> int:
     print(f"  凭证: {CREDS_PATH}")
     print()
 
+    # 凭证持久化策略:
+    # - SDK 的 from_login(save_to=...) 只写文件，**自己从不读** —— 每次都会重扫码
+    #   分配新 bot 账号，手机端旧会话框就成"僵尸"（bot ID 变了）
+    # - 修复: 文件存在 → WeixinBot(credentials_file=...) 直接恢复，不走扫码
+    #         恢复失败（token 过期等）→ fallback 到 from_login 重新扫
+    bot = None
     if CREDS_PATH.exists():
-        print("[i] 复用本地凭证")
-    else:
-        print("[i] 首次启动，扫码登录…")
-        print("    手机微信 → 我 → 设置 → 插件 → 微信 ClawBot")
-    print()
+        print("[i] 用本地凭证恢复 bot…")
+        try:
+            bot = WeixinBot(credentials_file=str(CREDS_PATH))
+            # bot.info 是属性 dict 不是方法，没办法在这一步真验证 token 是否过期。
+            # 信任文件: 若 token 实际失效，后续 bot.run() 第一次轮询会报错，
+            # 用户看到错误再删 .wechat_creds.json 重跑即可。
+        except Exception as e:
+            print(f"[i] 凭证文件无法解析（{type(e).__name__}: {str(e)[:80]}），重新扫码…")
+            bot = None
 
-    try:
-        bot = WeixinBot.from_login(save_to=str(CREDS_PATH))
-    except Exception as e:
-        print(f"[ERROR] 登录失败: {type(e).__name__}: {e}")
-        return 1
+    if bot is None:
+        print("[i] 扫码登录中…")
+        print("    手机微信 → 我 → 设置 → 插件 → 微信 ClawBot")
+        try:
+            bot = WeixinBot.from_login(save_to=str(CREDS_PATH))
+        except Exception as e:
+            print(f"[ERROR] 登录失败: {type(e).__name__}: {e}")
+            return 1
 
     print(f"[OK] bot running — account={bot.account_id}")
     print("    现在用手机微信对 yuki bot 说话即可")
