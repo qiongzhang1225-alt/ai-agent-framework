@@ -486,32 +486,58 @@ def _warm_up_in_background(port: int, on_ready) -> None:
 
 
 def _maybe_start_wechat_bridge() -> None:
-    """opt-in 启动微信桥接子进程。
+    """凭证存在时自动启动微信桥接（默认开）。
 
     设计:
-    - 子进程而非线程: bot.run() 会接管 stdout 长轮询，独立进程更干净
-    - 守护进程: launcher 退出 = bridge 也死
-    - 只在凭证已缓存时启动（首次必须用户在 wechat_bridge.bat 里扫码）
+    - 触发条件: ``.wechat_creds.json`` 存在 + 没显式 ``YUKI_WECHAT_AUTOSTART=0``
+      （扫过码 = 你想用桥接，不该再要环境变量；不想要就设 =0 关掉）
+    - 启动方式分两种:
+      - **frozen 模式**（yuki.exe）: 在当前进程里跑 daemon 线程
+        - 不能 subprocess —— sys.executable 就是 yuki.exe，spawn 等于又起 yuki
+        - 线程随主进程退出自动死，无需清理
+      - **源码模式**（python launcher.py）: spawn 子进程跑 wechat_bridge.py
+        - 用 .venv python，stdout/stderr 丢黑洞
+        - launcher 退出时 terminate
     """
-    if os.environ.get("YUKI_WECHAT_AUTOSTART", "").strip() not in ("1", "true", "yes", "on"):
+    # opt-out 路径: 只有显式设 =0 / no / false / off 才禁用
+    flag = os.environ.get("YUKI_WECHAT_AUTOSTART", "").strip().lower()
+    if flag in ("0", "false", "no", "off"):
         return
+
     creds = APP_DIR / ".wechat_creds.json"
     if not creds.exists():
-        print("[wechat] YUKI_WECHAT_AUTOSTART=1 但凭证不存在，跳过", file=sys.stderr)
-        print("[wechat] 首次请手动跑 wechat_bridge.bat 扫码登录", file=sys.stderr)
+        # 没扫过码 = 你还没用上桥接，没什么可启动的；不报错（很正常的初始状态）
         return
+
+    if getattr(sys, "frozen", False):
+        _start_wechat_bridge_thread()
+    else:
+        _start_wechat_bridge_subprocess()
+
+
+def _start_wechat_bridge_thread() -> None:
+    """frozen 模式下在 daemon 线程里跑 bridge（同进程，wechat_bridge 必须打进 exe）。"""
+    def _run():
+        try:
+            import wechat_bridge  # 必须在 yuki.spec hiddenimports 里声明
+            wechat_bridge.main()
+        except Exception as e:
+            print(f"[wechat] 桥接线程崩了: {type(e).__name__}: {e}", file=sys.stderr)
+    t = threading.Thread(target=_run, daemon=True, name="wechat_bridge")
+    t.start()
+    print("[wechat] 桥接线程已启动（frozen mode）", file=sys.stderr)
+
+
+def _start_wechat_bridge_subprocess() -> None:
+    """源码模式下 spawn 子进程跑 wechat_bridge.py。"""
     bridge_py = APP_DIR / "wechat_bridge.py"
     if not bridge_py.exists():
         print(f"[wechat] wechat_bridge.py 不在 {APP_DIR}", file=sys.stderr)
         return
 
-    # 解析 .venv python（frozen 模式下用 sys.executable）
-    if getattr(sys, "frozen", False):
-        py_exe = sys.executable
-    else:
-        win_py = APP_DIR / ".venv" / "Scripts" / "python.exe"
-        unix_py = APP_DIR / ".venv" / "bin" / "python"
-        py_exe = str(win_py if win_py.exists() else unix_py if unix_py.exists() else sys.executable)
+    win_py = APP_DIR / ".venv" / "Scripts" / "python.exe"
+    unix_py = APP_DIR / ".venv" / "bin" / "python"
+    py_exe = str(win_py if win_py.exists() else unix_py if unix_py.exists() else sys.executable)
 
     import subprocess as _sp
     global _wechat_proc
@@ -523,7 +549,7 @@ def _maybe_start_wechat_bridge() -> None:
         stdout=_sp.DEVNULL,
         stderr=_sp.DEVNULL,
     )
-    print(f"[wechat] 桥接已启动 (pid={_wechat_proc.pid})", file=sys.stderr)
+    print(f"[wechat] 桥接子进程已启动 (pid={_wechat_proc.pid})", file=sys.stderr)
 
 
 _wechat_proc = None

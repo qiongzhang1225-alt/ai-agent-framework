@@ -43,6 +43,7 @@ for pkg in (
     "chromadb",
     "huggingface_hub",
     "safetensors",
+    "weixin_ilink",           # 微信 iLink Bot SDK（含 cryptography / requests / 子模块）
 ):
     try:
         d, b, h = collect_all(pkg)
@@ -106,6 +107,16 @@ hiddenimports = [
     "tools.plan",
     "tools.verify",
     "tools.postmortem",
+    "tools.code_indexer",
+    "tools.coding",
+    "tools.changelog",
+    "tools.sub_complete",
+    "tools.aggregate_search",
+    "tools.venv_install",
+    # 微信桥接：launcher.py 在 frozen 模式下 import wechat_bridge 跑线程，
+    # 必须显式声明否则 PyInstaller 静态分析不到（launcher 里是字符串 import）
+    "wechat_bridge",
+    "timing",
     # ChromaDB 后端
     "chromadb.utils",
     "chromadb.utils.embedding_functions",
