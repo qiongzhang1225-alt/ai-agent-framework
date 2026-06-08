@@ -49,7 +49,34 @@ import requests
 
 HERE = Path(__file__).resolve().parent
 CREDS_PATH = HERE / ".wechat_creds.json"
-YUKI_API_BASE = os.environ.get("YUKI_API_BASE", "http://127.0.0.1:3616").rstrip("/")
+
+
+def _safe_api_base() -> str:
+    """读 YUKI_API_BASE，做防御性校验。
+
+    历史上有过 .bat 在 GBK 中文 cmd 里 echo 一行示例 `set YUKI_API_BASE=http://其他地址`
+    被错误解码成真 `set` 命令的事故，env 里塞了带中文 / 空格的烂 URL。
+    校验失败时回退到默认 127.0.0.1:3616 并打印警告，不让烂 URL 把每次请求都打挂。
+    """
+    raw = (os.environ.get("YUKI_API_BASE") or "").strip().rstrip("/")
+    if not raw:
+        return "http://127.0.0.1:3616"
+    # 基本结构 + ASCII-only 校验（中文域名 / 空格肯定是 bug）
+    if not raw.startswith(("http://", "https://")):
+        print(f"[WARN] YUKI_API_BASE 不是 http(s):// 开头: {raw!r}，回退默认", file=sys.stderr)
+        return "http://127.0.0.1:3616"
+    try:
+        raw.encode("ascii")
+    except UnicodeEncodeError:
+        print(f"[WARN] YUKI_API_BASE 含非 ASCII 字符: {raw!r}，回退默认", file=sys.stderr)
+        return "http://127.0.0.1:3616"
+    if " " in raw:
+        print(f"[WARN] YUKI_API_BASE 含空格: {raw!r}，回退默认", file=sys.stderr)
+        return "http://127.0.0.1:3616"
+    return raw
+
+
+YUKI_API_BASE = _safe_api_base()
 ALLOWED_PREFIXES = tuple(
     p.strip() for p in (os.environ.get("YUKI_WECHAT_ALLOW") or "").split(",") if p.strip()
 )
