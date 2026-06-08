@@ -35,15 +35,30 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import re
+import requests
+
+# weixin-ilink 的 bot.run() 内部会调 signal.signal() 注册 SIGINT 处理器
+# 优雅停止。但 Python 的 signal.signal 只能在主线程跑，否则抛
+# ValueError: signal only works in main thread of the main interpreter。
+# yuki.exe 自启动桥接时桥接跑在 daemon 线程里 → 炸。
+# 包一层守卫: 主线程调正常，非主线程静默 no-op（反正非主线程也接不到信号）。
+# 必须放在 from weixin_ilink import ... 之前。
+import signal as _signal
+import threading as _threading
+_orig_signal_signal = _signal.signal
+def _signal_main_only(signum, handler):
+    if _threading.current_thread() is _threading.main_thread():
+        return _orig_signal_signal(signum, handler)
+    return None
+_signal.signal = _signal_main_only
+
 # weixin-ilink SDK
 try:
     from weixin_ilink import WeixinBot
 except ImportError:
     print("[ERROR] weixin-ilink 未安装。运行: pip install weixin-ilink", file=sys.stderr)
     sys.exit(1)
-
-import re
-import requests
 
 # ── 配置 ────────────────────────────────────────────────────────────────────
 
