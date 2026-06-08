@@ -852,17 +852,19 @@ async def wechat_chat(req: WechatChatRequest):
     if not text:
         raise HTTPException(400, "text 不能为空")
 
-    # user_id 脱敏取前 8 位作为来源标识
+    # 不给 LLM 加任何前缀 —— 之前加 "[微信 来自 xxx] ..." 让 yuki 误解
+    # 成第三人称"主人受到陌生消息让我代草拟回复"。
+    # 渠道信息走 _via 字段（元数据层），LLM 只看到用户的真实问话。
     short_uid = (req.user_id or "?")[:8] or "?"
-    prefixed_text = f"[微信 来自 {short_uid}] {text}"
 
     # append user message
     from datetime import datetime as _dt
     user_msg: dict[str, Any] = {
         "role": "user",
-        "content": prefixed_text,
+        "content": text,
         "ts": _dt.now().isoformat(timespec="seconds"),
-        "_via": "wechat",   # 标记来源（前端 / audit 用得着）
+        "_via": "wechat",            # 渠道标记（不进 LLM 上下文，仅审计 / 前端用）
+        "_wechat_uid": short_uid,    # 脱敏 user_id 前缀（便于跨条消息追踪同一发送者）
     }
     conv["messages"].append(user_msg)
     _checkpoint.save(conv["id"], conv)
