@@ -636,6 +636,9 @@ def main() -> int:
                 mark("heavy_init 线程启动")
                 port = find_free_port(3616)
                 url = f"http://127.0.0.1:{port}"
+                # 把实际端口写进 env，让微信桥接 / 其他外部进程能找到 yuki
+                # 不依赖默认 3616（端口被占时 find_free_port 会换成 3617/3618...）
+                os.environ["YUKI_API_BASE"] = url
                 start_server(port)
                 mark("uvicorn start_server 返回")
 

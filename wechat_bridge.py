@@ -241,21 +241,57 @@ def _resplit_long(s: str) -> list[str]:
     return out
 
 
+def _wait_yuki_ready(timeout: int = 60) -> bool:
+    """启动时等 yuki API ready，避免 bridge 一启动就 POST 撞上 server 还在初始化。
+
+    探 /api/health，最多等 timeout 秒，每 0.5 秒一次。
+    返回是否就绪（失败时桥接仍会继续启动，让 _post_yuki 重试机制兜底）。
+    """
+    import time
+    url = f"{YUKI_API_BASE}/api/health"
+    deadline = time.time() + timeout
+    last_err = None
+    while time.time() < deadline:
+        try:
+            r = requests.get(url, timeout=2)
+            if r.status_code == 200:
+                return True
+            last_err = f"status={r.status_code}"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+        time.sleep(0.5)
+    print(f"[WARN] yuki 启动等不到（last error: {last_err}），桥接继续启动靠 _post_yuki 重试兜底")
+    return False
+
+
 def _post_yuki(user_id: str, text: str) -> Optional[str]:
-    """同步 POST yuki 的 /api/wechat_chat，返回 reply 文本或 None。"""
+    """同步 POST yuki 的 /api/wechat_chat，返回 reply 文本或 None。
+
+    重试逻辑: ConnectionError 时退避重试 3 次（每次间隔 2s），
+    覆盖"yuki server 还在启动 / 端口刚换"等瞬态情况。
+    """
+    import time
     url = f"{YUKI_API_BASE}/api/wechat_chat"
-    try:
-        r = requests.post(
-            url,
-            json={"user_id": user_id, "text": text},
-            timeout=YUKI_TIMEOUT,
-        )
-    except requests.exceptions.ConnectionError:
-        return "❌ yuki 服务器没启动（启动 launcher.py 或 server.py 后再试）"
-    except requests.exceptions.Timeout:
-        return "⚠️ yuki 处理超时（任务可能太重，稍后重试或拆分问题）"
-    except Exception as e:
-        return f"⚠️ 调用失败: {type(e).__name__}: {e}"
+    last_err = ""
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                url,
+                json={"user_id": user_id, "text": text},
+                timeout=YUKI_TIMEOUT,
+            )
+            break
+        except requests.exceptions.ConnectionError as e:
+            last_err = f"ConnectionError: {e}"
+            if attempt < 2:
+                print(f"[retry] {url} 连不上，2 秒后重试（attempt {attempt+1}/3）")
+                time.sleep(2)
+                continue
+            return f"❌ yuki 服务器没启动或端口不对（试过 {YUKI_API_BASE}）"
+        except requests.exceptions.Timeout:
+            return "⚠️ yuki 处理超时（任务可能太重，稍后重试或拆分问题）"
+        except Exception as e:
+            return f"⚠️ 调用失败: {type(e).__name__}: {e}"
 
     if r.status_code >= 400:
         body = r.text[:200]
@@ -316,6 +352,10 @@ def main() -> int:
             return 1
 
     print(f"[OK] bot running — account={bot.account_id}")
+    print(f"    yuki API: {YUKI_API_BASE}")
+    # 等 yuki 就绪后再开始处理消息，避免一启动就把 backlog 消息全打挂
+    if _wait_yuki_ready(timeout=60):
+        print("[OK] yuki API 就绪")
     print("    现在用手机微信对 yuki bot 说话即可")
     print()
 
