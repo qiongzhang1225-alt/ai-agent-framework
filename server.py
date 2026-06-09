@@ -102,6 +102,23 @@ async def _on_startup_auto_commit():
     except Exception as e:
         print(f"[self-edit] 启动兜底 commit 失败（不影响主服务）: {e}")
 
+
+# 启动时同步预热 chromadb + bge embedding 模型。
+# 原本 launcher.py 在后台异步预热，但 UI 加载完后第一个 /api/memory 请求
+# 可能跟 bge 模型加载（~5 秒）撞上 → 用户看到 "加载记忆失败：Internal Server Error"。
+# FastAPI startup hook 在 uvicorn 接受连接之前完成 → 保证第一个请求到来时
+# bge 已经 ready。代价: server 启动慢 3-5 秒（可接受，launcher 的 splash 覆盖）。
+@app.on_event("startup")
+async def _on_startup_warmup_chromadb():
+    try:
+        from memory import _get_collection
+        _get_collection()           # 首次调用触发 bge 模型加载 + chromadb 客户端实例化
+        mark("FastAPI startup hook: chromadb + bge 同步预热完成")
+    except Exception as e:
+        # 模型 / 数据有问题不阻塞 server 启动，让用户至少能用对话功能
+        # 后续访问 /api/memory 时会重新抛错给用户看
+        print(f"[startup-warmup] chromadb 预热失败（不阻塞）: {e}")
+
 # ── 全局状态 ─────────────────────────────────────────────────────────────────
 
 # Phase 3 之后：LangGraph 的 SqliteSaver 不再使用；对话上下文完整存进
