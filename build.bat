@@ -58,20 +58,47 @@ REM onedir mode produces dist\yuki\yuki.exe + dist\yuki\_internal\
 REM Copy yuki.exe to project root, _internal/ next to it.
 REM yuki.exe needs _internal/ as a sibling to run.
 
-REM Clean old runtime files
-if exist yuki.exe del /Q yuki.exe
-if exist _internal rmdir /s /q _internal
+REM 二次检查 yuki.exe 进程（用户可能在 build 1-3 分钟期间又启动了）
+tasklist /FI "IMAGENAME eq yuki.exe" 2>nul | find /I "yuki.exe" >nul
+if not errorlevel 1 (
+    echo [WARN] yuki.exe is running again ^(maybe tray launched it during build^).
+    echo        Killing it so copy can proceed...
+    taskkill /F /IM yuki.exe >nul 2>&1
+    timeout /t 2 /nobreak >nul 2>&1
+)
 
-REM Copy new ones
-copy /Y "dist\yuki\yuki.exe" "yuki.exe" >nul
-if errorlevel 1 (
-    echo [ERROR] copy yuki.exe failed
+REM Clean old runtime files (del 失败时静默，依赖后面 copy 的明确错误)
+if exist yuki.exe del /F /Q yuki.exe >nul 2>&1
+if exist _internal rmdir /s /q _internal >nul 2>&1
+
+REM Copy new ones with retry (Windows 文件释放有 0-3 秒延迟)
+set _COPY_OK=
+for /L %%i in (1,1,3) do (
+    if not defined _COPY_OK (
+        copy /Y "dist\yuki\yuki.exe" "yuki.exe" >nul 2>&1
+        if not errorlevel 1 set _COPY_OK=1
+        if not defined _COPY_OK (
+            echo   [retry %%i/3] yuki.exe locked, waiting 3s and retrying...
+            timeout /t 3 /nobreak >nul 2>&1
+            taskkill /F /IM yuki.exe >nul 2>&1
+        )
+    )
+)
+if not defined _COPY_OK (
+    echo [ERROR] copy yuki.exe failed after 3 retries.
+    echo         yuki.exe seems persistently locked.
+    echo         Manual fix:
+    echo           taskkill /F /IM yuki.exe
+    echo           timeout /t 3
+    echo           copy /Y "dist\yuki\yuki.exe" "yuki.exe"
+    echo           xcopy /E /I /Q /Y "dist\yuki\_internal" "_internal"
     %_PAUSE%
     exit /b 1
 )
 xcopy /E /I /Q /Y "dist\yuki\_internal" "_internal" >nul
 if errorlevel 1 (
-    echo [ERROR] copy _internal\ failed
+    echo [ERROR] copy _internal\ failed - some file still locked.
+    echo         Try the manual fix shown above.
     %_PAUSE%
     exit /b 1
 )
