@@ -2,18 +2,33 @@
 REM Yuki desktop build script for Windows.
 REM See DESKTOP_BUILD.md for full doc (Chinese).
 REM
-REM Output: dist\yuki.exe  (single file, ~80-120 MB)
+REM Output: yuki.exe + _internal/ in project root.
 REM Usage:  double-click, or run "build.bat" from cmd.
+REM
+REM Env var NOPAUSE=1 skips all pauses (used by update.bat for seamless rebuild).
 
-setlocal
-
+setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
 cd /d "%~dp0"
+
+set _PAUSE=pause
+if "%NOPAUSE%"=="1" set _PAUSE=rem
 
 if not exist ".venv\Scripts\python.exe" (
     echo [ERROR] .venv\Scripts\python.exe not found.
     echo         Create venv first: python -m venv .venv
     echo         Then install deps: .venv\Scripts\pip install -r requirements.txt
-    pause
+    %_PAUSE%
+    exit /b 1
+)
+
+REM yuki.exe must not be running (would lock _internal\ files)
+tasklist /FI "IMAGENAME eq yuki.exe" 2>nul | find /I "yuki.exe" >nul
+if not errorlevel 1 (
+    echo [ERROR] yuki.exe is running. Close it first:
+    echo         - tray icon ^-^> exit
+    echo         - or: taskkill /F /IM yuki.exe
+    %_PAUSE%
     exit /b 1
 )
 
@@ -33,7 +48,7 @@ echo === Building (this may take 1-3 minutes) ===
 .venv\Scripts\python.exe -m PyInstaller yuki.spec --noconfirm
 if errorlevel 1 (
     echo [ERROR] Build failed.
-    pause
+    %_PAUSE%
     exit /b 1
 )
 
@@ -51,13 +66,13 @@ REM Copy new ones
 copy /Y "dist\yuki\yuki.exe" "yuki.exe" >nul
 if errorlevel 1 (
     echo [ERROR] copy yuki.exe failed
-    pause
+    %_PAUSE%
     exit /b 1
 )
 xcopy /E /I /Q /Y "dist\yuki\_internal" "_internal" >nul
 if errorlevel 1 (
     echo [ERROR] copy _internal\ failed
-    pause
+    %_PAUSE%
     exit /b 1
 )
 
@@ -71,4 +86,4 @@ echo Double-click yuki.exe to launch.
 echo yuki.exe needs _internal\ as a sibling folder - don't separate them.
 echo Original artifact at dist\yuki\.
 echo.
-pause
+%_PAUSE%

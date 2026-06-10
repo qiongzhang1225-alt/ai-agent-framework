@@ -55,15 +55,44 @@ else
 fi
 
 echo
-echo -e "  ${B}[2/2]${E} upgrading pip deps (in case requirements.txt changed)..."
+echo -e "  ${B}[2/3]${E} upgrading pip deps (in case requirements.txt changed)..."
 "$VENV_PIP" install -r requirements.txt --upgrade --quiet
+
+echo
+echo -e "  ${B}[3/3]${E} checking compiled binary..."
+
+# 检测有没有编译产物（yuki / yuki.exe）-> 用户用编译版 -> 自动重建
+EXE_PATH=""
+if [ -f dist/yuki/yuki.exe ] || [ -f yuki.exe ]; then
+    EXE_PATH="yuki.exe"
+elif [ -f dist/yuki ] || [ -d dist/yuki.app ]; then
+    EXE_PATH="dist/yuki (or .app)"
+fi
+
+if [ -z "$EXE_PATH" ]; then
+    echo "  No compiled binary - source mode user, skipping rebuild."
+else
+    # 检查 yuki 是不是在跑（macOS / Linux）
+    if pgrep -f "yuki" >/dev/null 2>&1; then
+        echo -e "  ${Y}[WARN]${E} yuki seems to be running. Close it first then re-run update.sh."
+        exit 1
+    fi
+    echo "  Compiled binary found ($EXE_PATH). Rebuild so the new source lands? (1-3 min)"
+    read -p "  Continue? [Y/n]: " REBUILD
+    if [ "${REBUILD,,}" = "n" ]; then
+        echo "  [SKIPPED] binary NOT rebuilt - it still has OLD code."
+        echo "           Either rerun update.sh with Y, run build.sh later,"
+        echo "           or run launcher.py from source instead."
+    else
+        echo "  Rebuilding..."
+        NOPAUSE=1 bash build.sh
+    fi
+fi
 
 echo
 echo "============================================================"
 echo -e "  ${G}Update done${E}"
 echo "============================================================"
 echo
-echo "  Restart yuki to pick up changes:"
-echo "    python launcher.py    # desktop mode"
-echo "    python server.py      # web mode"
+echo "  Restart yuki to pick up changes."
 echo

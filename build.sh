@@ -25,9 +25,12 @@ if [[ "$(uname -s)" == "Linux" ]]; then
         echo "[WARN] 未检测到 libwebkit2gtk。Linux pywebview 需要："
         echo "       Ubuntu/Debian: sudo apt install python3-gi gir1.2-webkit2-4.0"
         echo "       Fedora:        sudo dnf install python3-webkitgtk4.0"
-        echo "       继续打包？[y/N]"
-        read -r ans
-        [[ "$ans" != "y" && "$ans" != "Y" ]] && exit 1
+        # NOPAUSE=1 时（被 update.sh 调用）跳过交互式确认
+        if [ "${NOPAUSE:-}" != "1" ]; then
+            echo "       继续打包？[y/N]"
+            read -r ans
+            [[ "$ans" != "y" && "$ans" != "Y" ]] && exit 1
+        fi
     fi
 fi
 

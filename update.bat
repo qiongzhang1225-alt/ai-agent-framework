@@ -60,20 +60,56 @@ if exist ".git" (
 )
 
 echo.
-echo   [2/2] upgrading pip deps (in case requirements.txt changed)...
+echo   [2/3] upgrading pip deps (in case requirements.txt changed)...
 .venv\Scripts\pip.exe install -r requirements.txt --upgrade --quiet
 if errorlevel 1 (
     echo   [WARN] pip had warnings - check output above.
 )
 
 echo.
+echo   [3/3] checking yuki.exe...
+
+REM 检测 yuki.exe 存在 -> 用户在用编译版 -> 自动重建让 exe 跟代码一起更新
+REM 否则源码党直接跑 launcher.py 已经拿到新代码，无需 build
+if not exist "yuki.exe" (
+    echo   No yuki.exe found - source mode user, skipping rebuild.
+    goto done
+)
+
+REM yuki.exe 正在跑 -> 拒绝重建（_internal 文件锁）
+tasklist /FI "IMAGENAME eq yuki.exe" 2>nul | find /I "yuki.exe" >nul
+if not errorlevel 1 (
+    echo   [WARN] yuki.exe is currently running.
+    echo          Close it first ^(tray -^> exit^) then re-run update.bat.
+    echo          Source code is already updated; just exe needs rebuild.
+    pause
+    exit /b 1
+)
+
+echo   yuki.exe found. Rebuild so the new source lands in the exe? ^(1-3 min^)
+set /p REBUILD=  Continue? [Y/n]:
+if /i "!REBUILD!"=="n" (
+    echo   [SKIPPED] yuki.exe NOT rebuilt - it still has OLD code.
+    echo            Either rerun update.bat with Y, or run build.bat later,
+    echo            or run launcher.py from source instead.
+    goto done
+)
+
+echo   Rebuilding yuki.exe...
+set NOPAUSE=1
+call build.bat
+set NOPAUSE=
+if errorlevel 1 (
+    echo   [WARN] yuki.exe rebuild failed - check output above.
+    echo          Source is updated; you can run launcher.py for now.
+)
+
+:done
+echo.
 echo ============================================================
 echo   Update done
 echo ============================================================
 echo.
-echo   Restart yuki to pick up changes:
-echo     - desktop: close from tray, then run yuki.exe or launcher.py
-echo     - if you use yuki.exe ^(not source^): you may also want to rebuild
-echo       with build.bat so the new code lands in the exe.
+echo   Restart yuki to pick up changes ^(close from tray first, then launch^).
 echo.
 pause
