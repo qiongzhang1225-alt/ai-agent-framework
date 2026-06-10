@@ -13,7 +13,7 @@ echo   Yuki one-click installer
 echo ============================================================
 echo.
 
-REM ── 1. Check Python ──
+REM ---- 1. Check Python ----
 echo [1/5] Checking Python...
 where python >nul 2>&1
 if errorlevel 1 (
@@ -23,8 +23,8 @@ if errorlevel 1 (
     exit /b 1
 )
 for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
-REM 版本检测：chromadb / sentence-transformers 都要求 3.10+，装在更老的版本上
-REM 会在后面 pip install 阶段炸出莫名错误，提前拦住，给清晰原因。
+REM Version check: chromadb / sentence-transformers / fastapi all require 3.10+.
+REM Older Pythons would crash at pip install with cryptic errors; catch early.
 python -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
 if errorlevel 1 (
     echo   [ERROR] Python !PYVER! is too old. Need 3.10 or newer.
@@ -37,7 +37,7 @@ if errorlevel 1 (
 )
 echo   OK: Python !PYVER!
 
-REM ── 2. Create .venv ──
+REM ---- 2. Create .venv ----
 echo.
 echo [2/5] Creating virtual environment (.venv)...
 if exist .venv (
@@ -52,7 +52,7 @@ if exist .venv (
     echo   OK: .venv created
 )
 
-REM ── 3. Install dependencies ──
+REM ---- 3. Install dependencies ----
 echo.
 echo [3/5] Installing dependencies (this may take 2-5 minutes)...
 .venv\Scripts\python.exe -m pip install --upgrade pip --quiet
@@ -65,7 +65,7 @@ if errorlevel 1 (
 )
 echo   OK: dependencies installed
 
-REM ── 4. Setup .env ──
+REM ---- 4. Setup .env ----
 echo.
 echo [4/5] Setting up .env...
 if not exist .env (
@@ -81,7 +81,7 @@ if not exist .env (
     echo   .env already exists
 )
 
-REM ── 5. Download embedding model ──
+REM ---- 5. Download embedding model ----
 echo.
 echo [5/5] Checking embedding model (bge-base-zh-v1.5)...
 if exist "models\bge-base-zh-v1.5\pytorch_model.bin" (
@@ -106,7 +106,7 @@ if exist "models\bge-base-zh-v1.5\pytorch_model.bin" (
     )
 )
 
-REM ── 6. Run completeness check ──
+REM ---- 6. Run completeness check ----
 echo.
 echo ============================================================
 echo   Running completeness check...
@@ -114,7 +114,7 @@ echo ============================================================
 .venv\Scripts\python.exe check_install.py
 echo.
 
-REM ── 7. Finish ──
+REM ---- 7. Finish ----
 echo.
 echo ============================================================
 echo   Installation done.

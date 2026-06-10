@@ -5,6 +5,7 @@ python-dotenv>=1.0    # .env 加载
 # 长期记忆（向量库 + 中文 embedding）
 chromadb>=1.0
 sentence-transformers>=5.0   # 加载 bge-base-zh-v1.5（本地路径），见 models/README.md
+huggingface_hub>=0.20        # install.bat 用 snapshot_download 下 bge 模型；显式声明防上游断链
 
 # Web 前端（FastAPI 替代 Streamlit）
 fastapi>=0.115
