@@ -58,7 +58,7 @@ REM onedir mode produces dist\yuki\yuki.exe + dist\yuki\_internal\
 REM Copy yuki.exe to project root, _internal/ next to it.
 REM yuki.exe needs _internal/ as a sibling to run.
 
-REM 二次检查 yuki.exe 进程（用户可能在 build 1-3 分钟期间又启动了）
+REM Second check: yuki.exe may have been launched during build (1-3 min window)
 tasklist /FI "IMAGENAME eq yuki.exe" 2>nul | find /I "yuki.exe" >nul
 if not errorlevel 1 (
     echo [WARN] yuki.exe is running again ^(maybe tray launched it during build^).
@@ -67,11 +67,11 @@ if not errorlevel 1 (
     timeout /t 2 /nobreak >nul 2>&1
 )
 
-REM Clean old runtime files (del 失败时静默，依赖后面 copy 的明确错误)
+REM Clean old runtime files (del failures silent, copy error below catches them)
 if exist yuki.exe del /F /Q yuki.exe >nul 2>&1
 if exist _internal rmdir /s /q _internal >nul 2>&1
 
-REM Copy new ones with retry (Windows 文件释放有 0-3 秒延迟)
+REM Copy new ones with retry (Windows file release can lag 0-3s after process exit)
 set _COPY_OK=
 for /L %%i in (1,1,3) do (
     if not defined _COPY_OK (

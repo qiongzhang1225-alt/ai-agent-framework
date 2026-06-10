@@ -20,7 +20,7 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 if exist ".git" (
-    REM ── git clone path ──
+    REM ---- git clone path ----
     echo   Mode: git clone detected
     echo.
     where git >nul 2>&1
@@ -40,7 +40,7 @@ if exist ".git" (
     )
     echo   OK
 ) else (
-    REM ── zip download path ──
+    REM ---- zip download path ----
     echo   Mode: zip install detected (no .git folder)
     echo.
     echo   This script can't auto-download the new zip for you. Do this:
@@ -69,14 +69,14 @@ if errorlevel 1 (
 echo.
 echo   [3/3] checking yuki.exe...
 
-REM 检测 yuki.exe 存在 -> 用户在用编译版 -> 自动重建让 exe 跟代码一起更新
-REM 否则源码党直接跑 launcher.py 已经拿到新代码，无需 build
+REM Detect yuki.exe: user is on compiled version -> auto-rebuild to sync with new source.
+REM Otherwise source-mode user already has new code via launcher.py.
 if not exist "yuki.exe" (
     echo   No yuki.exe found - source mode user, skipping rebuild.
     goto done
 )
 
-REM yuki.exe 正在跑 -> 拒绝重建（_internal 文件锁）
+REM yuki.exe running -> can't rebuild (_internal files would be locked)
 tasklist /FI "IMAGENAME eq yuki.exe" 2>nul | find /I "yuki.exe" >nul
 if not errorlevel 1 (
     echo   [WARN] yuki.exe is currently running.
