@@ -728,6 +728,51 @@
                     </div>
                   </template>
 
+                  <!-- 实时步骤卡：流式期间显示工具的 pending/done 状态 -->
+                  <!-- (执行完会被服务器持久化的 tool messages 替代，自然消失) -->
+                  <template x-if="msg.streaming && currentConv && currentConv._streamSteps && currentConv._streamSteps.length">
+                    <div class="mt-2 space-y-1">
+                      <template x-for="(step, sidx) in currentConv._streamSteps" :key="step.tool_call_id + '_' + sidx">
+                        <div>
+                          <button
+                            @click="toggleLiveStep(sidx)"
+                            class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md
+                                   bg-zinc-800/40 hover:bg-zinc-800/70 border border-white/5
+                                   hover:border-white/15 transition text-left text-xs"
+                          >
+                            <span class="text-sm shrink-0" x-text="toolIcon(step.name)"></span>
+                            <code class="text-amber-300/90 shrink-0" x-text="step.name"></code>
+                            <span class="text-zinc-500 truncate flex-1 font-mono"
+                                  x-text="toolArgsPreview({ arguments: step.arguments })"></span>
+                            <!-- 状态图标：pending=旋转、done ok=绿✓、done fail=红✗ -->
+                            <template x-if="step.status === 'pending'">
+                              <svg class="w-3.5 h-3.5 animate-spin shrink-0 text-amber-300/70" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                              </svg>
+                            </template>
+                            <span x-show="step.status === 'done' && step.ok" class="shrink-0 text-sm text-emerald-400">✓</span>
+                            <span x-show="step.status === 'done' && !step.ok" class="shrink-0 text-sm text-red-400">✗</span>
+                          </button>
+                          <!-- 展开态：完整结果 -->
+                          <div x-show="liveStepExpanded[sidx]"
+                               x-transition.opacity.duration.150ms
+                               class="mt-1 ml-2 pl-3 border-l-2 border-amber-500/20 py-1">
+                            <details open class="text-[10px] text-zinc-500">
+                              <summary class="cursor-pointer hover:text-zinc-300">结果</summary>
+                              <pre class="mt-1 text-[11px] text-zinc-300 bg-black/30 rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"
+                                   x-text="step.result_full || step.preview || '(等待中...)'"></pre>
+                            </details>
+                          </div>
+                          <!-- 折叠态结果预览（一行） -->
+                          <div x-show="!liveStepExpanded[sidx] && step.preview"
+                               class="ml-7 text-[11px] text-zinc-500 truncate"
+                               x-text="step.preview"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
                   <!-- 生成的文件预览 -->
                   <template x-if="msg.files && msg.files.length">
                     <div class="mt-2 space-y-2">
@@ -1484,7 +1529,8 @@
         compressedExpanded: {},
         compressedFullText: {},
         // 工具步骤卡：哪些展开了详情
-        expandedSteps: {},
+        expandedSteps: {},      // 持久化工具步骤的展开状态（msg index → bool）
+        liveStepExpanded: {},   // 实时步骤卡的展开状态（step sidx → bool）
         // 文件树（取代旧的 recentFiles 平铺）
         fileTree: [],
         expandedDirs: {},   // 目录路径 → 是否展开
@@ -1894,20 +1940,27 @@
         },
 
         async selectConversation(id) {
-          // 离开旧 sub 时触发后台摘要（不阻塞）
+          // 离开旧对话时：自动标题 + 子对话摘要（都不阻塞）
           if (this.currentConv && this.currentConv.id !== id
-              && this.currentConv.kind === 'sub'
+              && this.currentConv.kind !== 'master'
               && (this.currentConv.messages || []).length >= 2) {
             const oldId = this.currentConv.id;
-            fetch(`/api/conversations/${oldId}/summarize`, { method: 'POST' })
+            // 生成简洁标题（所有对话都触发）
+            fetch(`/api/conversations/${oldId}/rename`, { method: 'POST' })
               .then(r => r.json())
               .then(data => {
-                if (data.ok) {
-                  // 摘要好了 → 重新加载列表让"待批准"徽章出现
-                  this.loadConversations();
-                }
+                if (data.ok) this.loadConversations();
               })
               .catch(() => {});
+            // 子对话额外生成摘要（已有逻辑）
+            if (this.currentConv.kind === 'sub') {
+              fetch(`/api/conversations/${oldId}/summarize`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                  if (data.ok) this.loadConversations();
+                })
+                .catch(() => {});
+            }
           }
           this.currentId = id;
           const resp = await fetch(`/api/conversations/${id}`);
@@ -2256,6 +2309,7 @@
           sentConv._streamBuf = '';
           sentConv._streamToolStatus = '';
           sentConv._streamFiles = [];
+          sentConv._streamSteps = [];     // 实时步骤卡: {tool_call_id, name, args, status, preview, ok}
           sentConv._streamUserMsg = userMsg;
           sentConv._streamUserImages = imagesToSend;
           // resume 时清掉撞墙标记（视觉上"继续"按钮消失）
@@ -2466,6 +2520,32 @@
           } else if (event === 'tool_call') {
             sentConv._streamToolStatus = payload.tool;
             if (inView) this.toolStatus = payload.tool;
+            // 步骤卡: pending 状态追加
+            if (!sentConv._streamSteps) sentConv._streamSteps = [];
+            sentConv._streamSteps.push({
+              tool_call_id: payload.tool_call_id || '',
+              name: payload.tool,
+              arguments: payload.arguments || {},
+              status: 'pending',
+              preview: '',
+              result_full: '',
+              ok: null,
+            });
+          } else if (event === 'tool_result') {
+            // 步骤卡: 找到对应步骤把 pending 改成 done
+            if (sentConv._streamSteps) {
+              const step = sentConv._streamSteps.find(
+                s => s.tool_call_id === payload.tool_call_id
+              );
+              if (step) {
+                step.status = 'done';
+                step.preview = payload.preview || '';
+                step.result_full = payload.result_full || '';
+                step.ok = payload.ok !== false;
+              }
+            }
+            // 工具结果给底部状态条清空（防止还停在"调用 X 中..."）
+            if (inView) this.toolStatus = '';
           } else if (event === 'todo_update') {
             // 仅当用户在该 conv 时更新浮卡（每个对话有独立 todos）
             if (inView) {
@@ -2516,6 +2596,10 @@
               this.$nextTick(() => this.$refs.askInputEl?.focus());
             }
           } else if (event === 'done') {
+            // 流式步骤卡完成使命 — 服务器持久化的 tool messages 会通过
+            // 后续的 conv 刷新接管显示（pollCurrentConv 或下次切对话）
+            sentConv._streamSteps = [];
+            this.liveStepExpanded = {};
             sentConv._streamFiles = payload.new_files || [];
             sentConv.name = payload.conv_name || sentConv.name;
             // 撞墙标记同步到 conv（前端"继续"按钮根据它显示）
@@ -2861,6 +2945,11 @@
         // 折叠/展开步骤卡详情
         toggleStep(idx) {
           this.expandedSteps[idx] = !this.expandedSteps[idx];
+        },
+
+        // 折叠/展开实时步骤卡（流式期间显示的临时卡）
+        toggleLiveStep(sidx) {
+          this.liveStepExpanded[sidx] = !this.liveStepExpanded[sidx];
         },
 
         // ── 最近文件 / @mention 补全 ──────────────────────────────────────

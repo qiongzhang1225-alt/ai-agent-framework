@@ -29,10 +29,29 @@ _TEXT_EXTS = frozenset({
 
 # 搜索 / 列文件时跳过的"噪音"目录
 _SKIP_DIRS = frozenset({
-    "__pycache__", ".git", ".venv", "venv", "node_modules",
+    "__pycache__", ".git", ".venv", "venv", "env", "myenv", "virtualenv",
+    "node_modules",
     ".sandbox", ".memory", ".idea", ".vscode", ".pytest_cache",
     ".mypy_cache", "dist", "build", ".next",
+    "site-packages",  # pip install 目标，路径里任何层级出现都跳过
 })
+
+
+def _is_venv_dir(path: Path) -> bool:
+    """识别 Python 虚拟环境根目录（有 pyvenv.cfg 文件即是）。
+
+    用 pyvenv.cfg 当 ground truth 比硬编码"".venv""venv""env" 名单更可靠
+    —— 用户用什么名字建 venv 都不漏（myenv / dev / test_env 等）。
+    """
+    try:
+        return (path / "pyvenv.cfg").is_file()
+    except Exception:
+        return False
+
+
+def _is_pkg_metadata_dir(name: str) -> bool:
+    """识别 pip 包元数据目录（*.egg-info / *.dist-info）。"""
+    return name.endswith(".egg-info") or name.endswith(".dist-info")
 
 _MAX_FILE_CHARS = 8000   # read_file 输出截断阈值
 _MAX_GREP_MATCHES = 50   # grep 返回最多条数

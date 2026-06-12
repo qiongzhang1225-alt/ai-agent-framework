@@ -299,7 +299,8 @@ mark("server.py 模块全部加载完成")
 # ── 工作目录文件过滤（防 venv / node_modules / 缓存等淹没列表）────────────
 # 目录黑名单：遇到这些名字的子目录整个跳过递归
 _EXCLUDE_DIRS = frozenset({
-    ".venv", "venv", "env", ".env_dir",
+    ".venv", "venv", "env", ".env_dir", "myenv", "virtualenv",
+    "site-packages",              # 路径里任何层级出现都跳过（防 venv 内 lib/）
     "node_modules", "__pycache__",
     ".git", ".idea", ".vscode",
     ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
@@ -344,15 +345,26 @@ def _walk_workdir(workdir: Path):
     """生成器：遍历 workdir，跳过 _EXCLUDE_DIRS，过滤垃圾文件。
 
     yield 元组 (rel_path: str, abs_path: Path, is_dir: bool)。
+
+    除了静态黑名单，还动态识别两类目录:
+    - **Python venv 根** (有 pyvenv.cfg) —— 不管叫什么名字 (myenv / dev / test_env...)
+    - **pip 包元数据** (*.egg-info / *.dist-info)
+    防止 yuki 在 workdir 里建 venv 或装包后整个 site-packages 被当成"新建文件"
+    挤进对话框。
     """
     if not workdir.exists():
         return
     workdir = workdir.resolve()
     # 用 os.walk 比 Path.rglob 快且能截断递归
     for root, dirs, files in os.walk(workdir):
-        # 原地修改 dirs 跳过黑名单目录（os.walk 这是 idiom）
-        dirs[:] = [d for d in dirs if d not in _EXCLUDE_DIRS]
         root_path = Path(root)
+        # 原地修改 dirs：黑名单 + 动态过滤
+        dirs[:] = [
+            d for d in dirs
+            if d not in _EXCLUDE_DIRS
+            and not d.endswith((".egg-info", ".dist-info"))
+            and not (root_path / d / "pyvenv.cfg").is_file()   # venv 根
+        ]
         rel_root = root_path.relative_to(workdir)
         # 目录本身（除 workdir 根）
         if rel_root != Path("."):
@@ -469,8 +481,10 @@ async def health() -> dict:
 
 @app.get("/api/conversations")
 async def list_conversations() -> list[dict]:
-    # 倒序：最新创建的在前
-    return [_conv_summary(c) for c in reversed(list(conversations.values()))]
+    # 按最后使用时间倒序：最近聊过的排最前
+    summaries = [_conv_summary(c) for c in conversations.values()]
+    summaries.sort(key=lambda s: s.get("last_message_ts", ""), reverse=True)
+    return summaries
 
 
 @app.get("/api/conversations/{tid}")
@@ -746,12 +760,28 @@ async def chat(req: ChatRequest, request: Request):
                         "data": json.dumps({"text": ev["text"]}),
                     }
                 elif etype == "tool_call":
+                    # 把工具名 + 参数实时推给前端，让步骤卡能在工具开始时就显示
                     yield {
                         "event": "tool_call",
-                        "data": json.dumps({"tool": ev["name"]}),
+                        "data": json.dumps({
+                            "tool": ev["name"],
+                            "tool_call_id": ev.get("id", ""),
+                            "arguments": ev.get("arguments", {}),
+                        }, ensure_ascii=False),
                     }
                 elif etype == "tool_result":
-                    # todo_write 调用后立即推送最新清单给前端浮卡（D1）
+                    # 所有工具的结果都实时推给前端（之前只有 todo_write 推）
+                    yield {
+                        "event": "tool_result",
+                        "data": json.dumps({
+                            "tool": ev["name"],
+                            "tool_call_id": ev.get("id", ""),
+                            "preview": ev.get("preview", ""),
+                            "result_full": ev.get("result_full", ""),
+                            "ok": ev.get("ok", True),
+                        }, ensure_ascii=False),
+                    }
+                    # todo_write 额外推 todo_update 让浮卡刷新
                     if ev.get("name") == "todo_write":
                         from tools.todo import load_todos
                         yield {
@@ -782,6 +812,24 @@ async def chat(req: ChatRequest, request: Request):
             str(p.resolve().relative_to(workdir_abs)).replace("\\", "/")
             for p in (files_after - files_before)
         )
+        # 阈值兜底：> 20 个新文件 = 几乎肯定是 pip install / 解压 / clone 等
+        # 副作用产生的，不是 yuki 真的"创建"了这么多。汇总成顶层目录摘要
+        # 避免对话框被几百个文件名淹没。
+        if len(new_files_rel) > 20:
+            from collections import Counter as _Counter
+            dir_counts: _Counter = _Counter()
+            for f in new_files_rel:
+                top = f.split("/", 1)[0] if "/" in f else "(根目录)"
+                dir_counts[top] += 1
+            # 留最前 5 个真文件名（让 yuki 知道至少有过某些 .py / .txt 产出），
+            # 后面追加按顶层目录汇总
+            kept = new_files_rel[:5]
+            summary = [
+                f"({c} 个文件在 {d}/)" for d, c in dir_counts.most_common(8)
+            ]
+            new_files_rel = kept + summary + [
+                f"... 共 {len(new_files_rel)} 个文件（已折叠，详见工作目录）"
+            ]
 
         # 把 agent 新生成的全部消息（assistant + tool_results）持久化到 conv["messages"]，
         # 同时把生成的文件附加在最后一条 assistant 消息上（前端按 role+files 渲染）
@@ -1691,6 +1739,71 @@ async def _generate_conv_summary(conv: dict) -> str:
         return f"[摘要失败：{err_msg}]"
 
     return "".join(parts).strip()
+
+
+@app.post("/api/conversations/{tid}/rename")
+async def auto_rename_conv(tid: str):
+    """根据对话内容自动生成标题并更新对话名称。独立/子对话通用。"""
+    if tid not in conversations:
+        raise HTTPException(404, "Conversation not found")
+    conv = conversations[tid]
+    # 主对话不改名
+    if conv.get("kind") == "master":
+        return {"ok": False, "reason": "主对话不改名"}
+    # 已有非默认名称且消息数少于5条，不改（防止刚改好又被覆盖）
+    name = conv.get("name", "")
+    msgs = conv.get("messages") or []
+    if name and name != "新对话" and len(msgs) < 5:
+        return {"ok": False, "reason": "已有自定义名称，且对话较短不改"}
+
+    text_lines: list[str] = []
+    for m in msgs:
+        role = m.get("role", "")
+        if role not in ("user", "assistant"):
+            continue
+        content = m.get("content", "")
+        if isinstance(content, list):
+            text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+            content = " ".join(text_parts)
+        if not isinstance(content, str):
+            continue
+        content = content.strip()
+        if not content:
+            continue
+        import re as _re
+        content = _re.sub(r"\[已上传图片：[^\]]*\]", "", content).strip()
+        if content:
+            text_lines.append(f"{role}: {content[:300]}")
+    if len(text_lines) < 2:
+        return {"ok": False, "reason": "对话内容过少"}
+
+    conversation_text = "\n\n".join(text_lines[-40:])
+    prompt = (
+        "根据以下对话，用不到12个字生成一个简洁的对话标题（纯标题，不要多余文字）。\n\n"
+        f"对话内容：\n{conversation_text}"
+    )
+    from ai_agent import DeepSeekClient, Message as DMsg
+    try:
+        client = DeepSeekClient(model="deepseek-v4-flash", temperature=0.5)
+        parts: list[str] = []
+        err_msg: str | None = None
+        async for ev in client.stream([DMsg.user(prompt)]):
+            if ev.get("type") == "delta":
+                parts.append(ev.get("text", ""))
+            elif ev.get("type") == "error":
+                err_msg = ev.get("error", "未知")
+                break
+        await client.aclose()
+        if err_msg:
+            return {"ok": False, "reason": f"LLM 错误: {err_msg}"}
+        title = "".join(parts).strip().strip('"').strip("'").strip('「」『』【】')
+        if title:
+            conv["name"] = title[:30]
+            _checkpoint.save(tid, conv)
+            return {"ok": True, "name": conv["name"]}
+        return {"ok": False, "reason": "生成标题为空"}
+    except Exception as e:
+        return {"ok": False, "reason": f"{type(e).__name__}: {e}"}
 
 
 @app.post("/api/conversations/{tid}/summarize")

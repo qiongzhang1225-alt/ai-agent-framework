@@ -147,7 +147,13 @@ class Agent:
                         arguments=ev["arguments"],
                     )
                     current_tool_calls.append(tc)
-                    yield {"type": "tool_call", "id": tc.id, "name": tc.name}
+                    # 把 arguments 也透给上层（server SSE → 前端步骤卡需要它）
+                    yield {
+                        "type": "tool_call",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                    }
                 elif etype == "done":
                     # llm 流自然结束，外层 async for 也会停
                     pass
@@ -172,12 +178,18 @@ class Agent:
             # ── 4. 执行所有工具调用 ───────────────────────────────────────
             for tc in current_tool_calls:
                 result_str = await self._invoke_tool(tc, config, tool_by_name)
-                # 截断 preview 仅供 UI 显示；完整内容进入下一轮 LLM 输入
+                # 简易成功/失败判定（工具返回以 ❌/⚠️ 或常见错误前缀开头视为失败）
+                _ok = not (
+                    result_str.lstrip().startswith(("❌", "⚠️", "错误", "Error", "[ERROR]"))
+                )
+                # preview 给 UI 步骤卡显示；完整内容进入下一轮 LLM 输入
                 yield {
                     "type": "tool_result",
                     "id": tc.id,
                     "name": tc.name,
                     "preview": result_str[:200],
+                    "result_full": result_str[:8000],  # 步骤卡展开显示用，再长也没意义
+                    "ok": _ok,
                 }
                 tool_msg = Message.tool_result(tool_call_id=tc.id, content=result_str)
                 msgs.append(tool_msg)

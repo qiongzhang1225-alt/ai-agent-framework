@@ -23,6 +23,7 @@ from . import self_edit      # noqa: F401  - 自我修改 self_read/edit/write/r
 from . import spawn_sub      # noqa: F401  - 主对话里 spawn_sub_conversation（1 个）
 from . import ui_check       # noqa: F401  - screenshot_and_describe UI 自检（1 个）
 from . import venv_install   # noqa: F401  - venv_install 往 .venv 安装 Python 包（1 个）
+from . import create_venv    # noqa: F401  - create_venv 在工作目录建虚拟环境（1 个，用系统真实 Python 绕开 frozen 限制）
 from . import plan           # noqa: F401  - plan_task 复杂任务先想再做（1 个）
 from . import verify         # noqa: F401  - verify_change 改完断言关键 pattern（1 个）
 from . import postmortem     # noqa: F401  - write_postmortem 任务复盘 + 自动 inject（1 个）
