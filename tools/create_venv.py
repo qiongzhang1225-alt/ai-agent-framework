@@ -1,4 +1,4 @@
-"""create_venv 工具：在工作目录创建 Python 虚拟环境。
+"""create_venv 工具：在工作目录创建 Python 虚拟环境，支持选版本。
 
 【为什么需要专用工具】
 yuki 让用 ``run_command("python", ["-m", "venv", ".venv"])`` 经常失败:
@@ -7,11 +7,17 @@ yuki 让用 ``run_command("python", ["-m", "venv", ".venv"])`` 经常失败:
 - pip 命令路径在 Win/Unix 不一样，yuki 经常拼错
 
 本工具自动:
-1. 用 find_real_python() 解析真实系统 Python（绕开 frozen yuki.exe）
-2. 检查 Python 版本 >= 3.10
+1. 用 ``py --list-paths`` 或 PATH 探测，列出所有可用 Python（含 3.11 / 3.14 等）
+2. 按主人要求或自动选版本（默认最新 ≥3.10）
 3. 跑 ``<py> -m venv <workdir>/<name>``
 4. 校验 pyvenv.cfg 真生成了
 5. 可选升级 pip + 装初始包列表
+
+【yuki 怎么决策版本】
+- 主人说"建个虚拟环境"（没指定版本）→ 工具自动选最新 ≥3.10
+- 主人说"用 3.11 建"→ 传 ``version="3.11"``
+- 主人说"列出能用的 Python"→ 传 ``list_versions=True``，不创建只看清单
+- 主人给了绝对路径 → 传 ``python="<绝对路径>"``，最高优先级
 
 安全:
 - venv 名只允许字母数字下划线连字符点（拒绝路径穿越）
@@ -21,6 +27,7 @@ yuki 让用 ``run_command("python", ["-m", "venv", ".venv"])`` 经常失败:
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -50,6 +57,132 @@ def _resolve_workdir(config: dict) -> Path:
         except Exception:
             pass
     return Path(DEFAULT_WORKDIR).resolve()
+
+
+def _enumerate_pythons() -> list[dict]:
+    """枚举机器上所有可用的 Python 解释器（>= 3.10）。
+
+    优先级:
+    1. Windows ``py --list-paths``（最权威，覆盖官方安装的所有版本）
+    2. PATH 中的 ``python3.10`` / ``python3.11`` / ... / ``python3``
+    3. ``find_real_python()`` 兜底（yuki 自己的 venv）
+
+    返回 [{"version": "3.14.3", "path": "...", "source": "py"}, ...]，
+    按版本号降序排（最新在前）。同路径去重。
+    """
+    found: dict[str, dict] = {}   # path -> info（去重）
+
+    # 1. Windows py launcher
+    py_launcher = shutil.which("py")
+    if py_launcher:
+        try:
+            r = subprocess.run(
+                [py_launcher, "--list-paths"],
+                capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
+            )
+            if r.returncode == 0:
+                # 格式：" -V:3.14 *        C:\Users\...\python.exe"
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    # 用正则提 -V:X.Y 和路径
+                    m = re.match(r"-V:(\d+\.\d+)\s+\*?\s+(.+\.exe)$", line, re.IGNORECASE)
+                    if m:
+                        path = m.group(2).strip()
+                        if Path(path).is_file():
+                            # 跑一下拿完整版本号
+                            ver = _probe_version(path)
+                            if ver:
+                                found[path] = {"version": ver, "path": path, "source": "py"}
+        except Exception:
+            pass
+
+    # 2. PATH 探测
+    for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3.10",
+                 "python3", "python"):
+        path = shutil.which(name)
+        if path and "yuki.exe" not in path.lower() and path not in found:
+            ver = _probe_version(path)
+            if ver:
+                # 排重叠版本（比如 python3 实际是 python3.11）
+                same_ver = [k for k, v in found.items() if v["version"] == ver]
+                if not same_ver:
+                    found[path] = {"version": ver, "path": path, "source": "path"}
+
+    # 3. find_real_python 兜底（yuki 自带 venv）
+    real = find_real_python()
+    if real and real not in found:
+        ver = _probe_version(real)
+        if ver:
+            found[real] = {"version": ver, "path": real, "source": "yuki-venv"}
+
+    # 按版本降序排
+    def _vkey(info):
+        try:
+            return tuple(int(x) for x in info["version"].split("."))
+        except Exception:
+            return (0, 0, 0)
+
+    return sorted(found.values(), key=_vkey, reverse=True)
+
+
+def _probe_version(py: str) -> str | None:
+    """跑 ``<py> -c "import sys; print(...)"`` 拿完整版本号。"""
+    try:
+        r = subprocess.run(
+            [py, "-c",
+             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"],
+            capture_output=True, text=True, timeout=5,
+            encoding="utf-8", errors="replace",
+        )
+        if r.returncode == 0:
+            return r.stdout.strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_python_by_version(version: str) -> tuple[str | None, str]:
+    """按主人指定的版本字符串解析 Python 路径。
+
+    支持的 version 格式: "3.11" / "3.11.2" / "3.14"。
+    先尝试 ``py -X.Y`` launcher 直接拿；找不到再扫枚举列表里 startswith 匹配。
+
+    返回 (path 或 None, 描述/错误)。
+    """
+    version = version.strip()
+    if not re.match(r"^\d+\.\d+(\.\d+)?$", version):
+        return None, f"version 格式不对 ({version!r})，应该是 '3.11' 或 '3.11.2' 这种"
+
+    short = ".".join(version.split(".")[:2])   # "3.11.2" → "3.11"
+
+    # 1. py launcher 直接试
+    py_launcher = shutil.which("py")
+    if py_launcher:
+        try:
+            r = subprocess.run(
+                [py_launcher, f"-{short}", "-c",
+                 "import sys; print(sys.executable)"],
+                capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
+            )
+            if r.returncode == 0:
+                path = r.stdout.strip()
+                if path and Path(path).is_file():
+                    return path, f"py -{short} → {path}"
+        except Exception:
+            pass
+
+    # 2. 枚举列表里找
+    all_pys = _enumerate_pythons()
+    matches = [p for p in all_pys if p["version"].startswith(short + ".")]
+    if matches:
+        chosen = matches[0]
+        return chosen["path"], f"找到 {chosen['version']} → {chosen['path']}"
+
+    # 3. 找不到
+    avail = ", ".join(p["version"] for p in all_pys) or "(无可用)"
+    return None, f"没找到 Python {short}。可用版本: {avail}"
 
 
 def _check_python_version(py: str) -> tuple[bool, str]:
@@ -82,41 +215,63 @@ def _check_python_version(py: str) -> tuple[bool, str]:
 @tool
 def create_venv(
     name: str = ".venv",
+    version: str = "",
     python: str = "",
     upgrade_pip: bool = True,
     install_packages: list = None,
     force: bool = False,
+    list_versions: bool = False,
     config: dict = None,
 ) -> str:
-    """**在工作目录创建 Python 虚拟环境** —— 比手动跑 ``python -m venv`` 可靠。
+    """**在工作目录创建 Python 虚拟环境** —— 比手动跑 ``python -m venv`` 可靠，可选版本。
 
     什么时候用:
     - 主人说"建个虚拟环境" / "搞个 venv" / "做个独立环境"
+    - 主人说"用 3.11 / 3.14 建"→ 传 ``version="3.11"``
+    - 主人说"列出我电脑上能用的 Python"→ 传 ``list_versions=True``
     - 你要装包跑代码但不想污染主人的全局 Python
-    - 主人项目需要隔离的 Python 环境
 
     什么时候不用:
     - 已经有 venv 了要装包 → 用 ``venv_install``
     - 主人指定用全局 Python → 直接 ``run_command("pip", ...)``
 
-    工作机制:
-    1. 自动找系统真实 Python 解释器（绕开 yuki.exe 内嵌的那个）
-    2. 检查 Python >= 3.10
-    3. 在 ``<workdir>/<name>`` 创建 venv
-    4. 校验 ``pyvenv.cfg`` 真生成了
-    5. 可选升级 pip + 装初始包列表
+    工作机制（按优先级解析 Python 解释器）:
+    1. 显式传 ``python=<绝对路径>`` → 直接用
+    2. 显式传 ``version="3.11"`` → 用 ``py -3.11`` 或扫枚举列表
+    3. 都没传 → 自动选机器上**最新的 >=3.10 版本**（py launcher 检测）
+    完成后校验 pyvenv.cfg 真生成、可选升级 pip、装初始包列表。
 
     Args:
         name: venv 目录名（默认 ``.venv``）。只允许字母数字下划线连字符点。
-        python: 指定 Python 解释器绝对路径（空 = 自动检测系统 Python 3.10+）。
+        version: 指定 Python 版本号（如 ``"3.11"`` / ``"3.14"`` / ``"3.11.2"``）。
+                 空 = 自动选最新可用版本（>=3.10）。
+        python: 指定 Python 解释器绝对路径（最高优先级，覆盖 version）。
         upgrade_pip: 创建后是否升级 pip 到最新（默认 True）。
         install_packages: 创建后立即安装的包列表（如 ``["numpy", "pandas==2.0"]``）。
         force: 如果同名 venv 已存在，强制重建（默认 False = 拒绝）。
+        list_versions: True 时不创建 venv，只返回机器上所有可用 Python 列表。
 
     Returns:
-        成功: 包含 venv 路径 + Python 版本 + 激活命令的多行提示。
-        失败: 错误原因 + 修复建议。
+        创建: venv 路径 + Python 版本 + 激活命令的多行提示。
+        list_versions=True: 可用版本清单。
+        失败: 错误原因 + 修复建议（含可用版本列表）。
     """
+    # list_versions 早期返回（只看清单不创建）
+    if list_versions:
+        all_pys = _enumerate_pythons()
+        if not all_pys:
+            return (
+                "❌ 机器上找不到任何可用的 Python 解释器。\n"
+                "请确认装了 Python 3.10+ 且在 PATH 中（或 Windows 用 py launcher）。"
+            )
+        lines = [f"机器上可用的 Python（共 {len(all_pys)} 个，按版本降序）："]
+        for p in all_pys:
+            tag = f"[{p['source']}]"
+            lines.append(f"  • {p['version']:<10} {tag:<12} {p['path']}")
+        lines.append("")
+        lines.append("用法: create_venv(name='.venv', version='3.11') 选指定版本")
+        return "\n".join(lines)
+
     # 1. 参数校验
     n = (name or "").strip()
     if not _VENV_NAME_RE.match(n) or n.startswith("..") or "/" in n or "\\" in n:
@@ -149,25 +304,36 @@ def create_venv(
                 f"拒绝覆盖，避免误删用户文件。如确认要清掉，传 force=True。"
             )
 
-    # 2. 解析 Python 解释器
+    # 2. 解析 Python 解释器（三层优先级：python > version > 自动选最新）
+    py_resolved_via = ""
     if python:
         py = python.strip()
         if not Path(py).is_file():
             return f"❌ 指定的 python 路径不存在: {py!r}"
+        py_resolved_via = "显式路径"
+    elif version:
+        resolved, info = _resolve_python_by_version(version)
+        if not resolved:
+            return f"❌ {info}\n建议: 传 list_versions=True 看机器上有哪些版本"
+        py = resolved
+        py_resolved_via = info
     else:
-        py = find_real_python()
-        if not py:
+        # 自动选最新 >=3.10
+        all_pys = _enumerate_pythons()
+        if not all_pys:
             return (
-                "❌ 找不到系统 Python 解释器。\n"
-                "  请确认 Python 3.10+ 已装在系统 PATH，或显式传 python=<绝对路径>。"
+                "❌ 找不到任何 Python 解释器。\n"
+                "请装 Python 3.10+ 并加入 PATH（或 Windows 用 py launcher）。"
             )
+        py = all_pys[0]["path"]
+        py_resolved_via = f"自动选最新（{all_pys[0]['version']}，{len(all_pys)} 个候选）"
 
     ok, ver_or_err = _check_python_version(py)
     if not ok:
         return (
             f"❌ {ver_or_err}\n"
             f"  当前用的解释器: {py}\n"
-            f"  请确认装了 Python 3.10+，或显式传 python=<其他路径>。"
+            f"  请确认装了 Python 3.10+，或显式传 version='3.11' / python=<绝对路径>。"
         )
     py_version = ver_or_err
 
@@ -224,6 +390,7 @@ def create_venv(
         "✅ venv 创建成功",
         f"  路径: {venv_dir}",
         f"  Python: {py_version} ({py})",
+        f"  选择方式: {py_resolved_via}",
         "  pyvenv.cfg: 已生成",
     ]
 
