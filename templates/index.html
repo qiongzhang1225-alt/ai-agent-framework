@@ -730,9 +730,9 @@
 
                   <!-- 实时步骤卡：流式期间显示工具的 pending/done 状态 -->
                   <!-- (执行完会被服务器持久化的 tool messages 替代，自然消失) -->
-                  <template x-if="msg.streaming && currentConv && currentConv._streamSteps && currentConv._streamSteps.length">
+                  <template x-if="msg.streaming && msg._streamSteps && msg._streamSteps.length">
                     <div class="mt-2 space-y-1">
-                      <template x-for="(step, sidx) in currentConv._streamSteps" :key="step.tool_call_id + '_' + sidx">
+                      <template x-for="(step, sidx) in msg._streamSteps" :key="step.tool_call_id + '_' + sidx">
                         <div>
                           <button
                             @click="toggleLiveStep(sidx)"
@@ -2004,6 +2004,8 @@
               content: sentConv._streamBuf || '',
               files: sentConv._streamFiles || [],
               streaming: true,
+              // 切回正在流的 conv 时也要把实时步骤卡接回来（共享同一数组）
+              _streamSteps: sentConv._streamSteps || [],
             });
             this.streaming = true;
             this.toolStatus = sentConv._streamToolStatus || '';
@@ -2331,6 +2333,9 @@
               content: '',
               files: [],
               streaming: true,
+              // 共享同一个数组引用：tool_call / tool_result 修改 sentConv._streamSteps
+              // 等于直接修改这里，Alpine 就能立刻感知到 push 触发重新渲染步骤卡
+              _streamSteps: sentConv._streamSteps,
             });
             this.streaming = true;
             this.toolStatus = '';
