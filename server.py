@@ -119,6 +119,29 @@ async def _on_startup_warmup_chromadb():
         # 后续访问 /api/memory 时会重新抛错给用户看
         print(f"[startup-warmup] chromadb 预热失败（不阻塞）: {e}")
 
+
+# 启动时把 mcp.json 里 enabled 的 MCP server 都连上，注册它们的工具。
+# 失败永不阻塞 yuki 自身（找不到 uvx / Unity 没开都视作"无 MCP"）。
+@app.on_event("startup")
+async def _on_startup_mcp_bridge():
+    try:
+        from tools.mcp_bridge import init as mcp_init
+        result = await mcp_init()
+        print(f"[mcp] bridge init: {result}")
+        mark("FastAPI startup hook: MCP bridge ready")
+    except Exception as e:
+        print(f"[mcp] bridge init 失败（不阻塞）: {type(e).__name__}: {e}")
+
+
+# 关闭时清理 MCP session + 子进程
+@app.on_event("shutdown")
+async def _on_shutdown_mcp_bridge():
+    try:
+        from tools.mcp_bridge import shutdown as mcp_shutdown
+        await mcp_shutdown()
+    except Exception:
+        pass
+
 # ── 全局状态 ─────────────────────────────────────────────────────────────────
 
 # Phase 3 之后：LangGraph 的 SqliteSaver 不再使用；对话上下文完整存进

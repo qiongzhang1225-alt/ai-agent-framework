@@ -47,3 +47,8 @@ pytest>=8.0               # 测试 runner
 # wechat_bridge.py 用；不开微信桥接可不装，install.bat 默认装
 # 腾讯官方 ClawBot 协议 Python SDK（合法接入，零封号风险）
 weixin-ilink>=0.3.5
+
+# MCP（Model Context Protocol）客户端
+# tools/mcp_bridge.py 用；让 yuki 能连 Unity MCP / GitHub MCP 等外部工具
+# Anthropic 官方 Python SDK
+mcp>=1.0

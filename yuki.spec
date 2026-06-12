@@ -44,6 +44,7 @@ for pkg in (
     "huggingface_hub",
     "safetensors",
     "weixin_ilink",           # 微信 iLink Bot SDK（含 cryptography / requests / 子模块）
+    "mcp",                    # MCP 客户端 SDK（含 client.stdio + ClientSession 子模块）
 ):
     try:
         d, b, h = collect_all(pkg)

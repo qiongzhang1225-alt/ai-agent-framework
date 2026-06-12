@@ -1,0 +1,12 @@
+{
+  "_comment": "把这个文件复制成 mcp.json (放 yuki.exe 旁 / 项目根) 即可启用。",
+  "_docs": "docs/UNITY_SETUP.md 有 Unity MCP 完整安装步骤。",
+  "mcpServers": {
+    "unity": {
+      "_about": "Unity Editor 桥接。需要先按 docs/UNITY_SETUP.md 装好 (1) Unity 包 (2) Python server 包 (uvx 或 pip install)。",
+      "command": "uvx",
+      "args": ["unity-mcp-server"],
+      "enabled": false
+    }
+  }
+}
