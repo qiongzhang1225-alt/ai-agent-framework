@@ -87,6 +87,10 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 #### 4. 启动
 
+**最方便**：双击 `launch.bat`（Win）或 `./launch.sh`（Mac/Linux）—— 无控制台残留，跟 yuki.exe 体验一样。
+
+或者手动跑：
+
 ```bash
 .venv\Scripts\python launcher.py     # 桌面模式（推荐）
 .venv\Scripts\python server.py       # Web 模式
