@@ -591,7 +591,7 @@
         </template>
 
         <template x-for="(msg, idx) in messages" :key="idx">
-          <div x-show="isVisibleMessage(msg)">
+          <div x-show="isVisibleMessage(msg, idx)">
             <!-- ─── 工具步骤卡（role=tool）：紧凑样式，无头像，左侧缩进 ─── -->
             <template x-if="msg.role === 'tool'">
               <div class="ml-11 mb-1 group">
@@ -716,6 +716,15 @@
                       : 'bg-zinc-800/60 text-zinc-100'"
                     x-html="renderMarkdown(stripImageRef(msgText(msg)))"
                   ></div>
+
+                  <!-- 孤儿空回复占位：调完工具 yuki 没接着说话 (DeepSeek 偶尔抽风) -->
+                  <!-- 显示提示让用户知道不是 yuki 失踪，可以追问 -->
+                  <template x-if="isOrphanEmptyAssistant(msg, idx)">
+                    <div class="rounded-lg px-4 py-3 inline-block max-w-full bg-amber-900/20 border border-amber-700/30 text-amber-200/80 text-sm">
+                      <span class="opacity-80">⚠️ yuki 这一轮没接着说话（工具结果已经拿到了，但 LLM 返回了空回复）。</span>
+                      <span class="opacity-60">追问"再说一下" / "继续" 让她补上。</span>
+                    </div>
+                  </template>
 
                   <!-- streaming 状态条：思考中 / 调用工具中 / 生成中 -->
                   <template x-if="msg.streaming && msg.role === 'assistant'">
@@ -2842,7 +2851,7 @@
         // 持久化的 conv.json 含完整 ReAct 序列（含 tool 消息和"只有 tool_calls
         // 没文本"的中间 assistant 消息）。这些是给 LLM 用的内部状态，不该显示
         // 给主人 —— 否则切回历史对话时会"露出搜索过程 / 思考过程"。
-        isVisibleMessage(msg) {
+        isVisibleMessage(msg, idx) {
           if (!msg || !msg.role) return false;
           if (msg.role === 'user') {
             // 文本可见，或者有图片缩略图要展示
@@ -2852,14 +2861,32 @@
           }
           if (msg.role === 'assistant') {
             // 流式中要显示（含空 content 时的"思考中"状态条）
-            // 持久化的旧消息：content 非空才显示（过滤掉中间 tool_call 决策消息）
+            if (msg.streaming) return true;
             const txt = this.msgText(msg);
-            return !!msg.streaming || !!(txt && txt.trim());
+            if (txt && txt.trim()) return true;
+            // 持久化的空 assistant: 一般是"中间 tool_call 决策消息"，过滤掉
+            // 例外: 如果前一条是 tool 消息且本条没 tool_calls，意味着 LLM 调完
+            // 工具没说话就停了（DeepSeek 偶尔抽风）—— 必须显示，否则用户以为 yuki 失踪
+            if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) return false;
+            const prev = (typeof idx === 'number' && idx > 0) ? this.messages[idx - 1] : null;
+            if (prev && prev.role === 'tool') return true;   // 空回复但前面有工具结果
+            return false;
           }
           // tool 消息现在显示为步骤卡（紧凑样式）
           if (msg.role === 'tool') return true;
           // system 永不展示
           return false;
+        },
+
+        // 判断这条 assistant 是不是"工具调完没说话"的空回复
+        // 用来显示友好提示而不是空白气泡
+        isOrphanEmptyAssistant(msg, idx) {
+          if (!msg || msg.role !== 'assistant' || msg.streaming) return false;
+          const txt = this.msgText(msg);
+          if (txt && txt.trim()) return false;
+          if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) return false;
+          const prev = (typeof idx === 'number' && idx > 0) ? this.messages[idx - 1] : null;
+          return !!(prev && prev.role === 'tool');
         },
 
         // ── 工具步骤卡 helpers ──
