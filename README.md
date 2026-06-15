@@ -74,12 +74,14 @@ cp .env.example .env
 ```cmd
 # Windows
 set HF_ENDPOINT=https://hf-mirror.com
+set HF_HUB_DISABLE_XET=1
 .venv\Scripts\python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
 ```
 
 ```bash
 # Linux / Mac（中国大陆建议先设镜像）
 export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_DISABLE_XET=1
 .venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
 ```
 

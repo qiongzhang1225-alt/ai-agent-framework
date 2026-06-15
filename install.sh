@@ -86,6 +86,8 @@ else
     else
         echo "  Downloading..."
         export HF_ENDPOINT=https://hf-mirror.com
+        # 关掉 xet 后端，否则大文件重定向到 hf-mirror 不代理的 cas-bridge.xethub.hf.co 会断流
+        export HF_HUB_DISABLE_XET=1
         "$VENV_PY" -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5')"
         echo -e "  ${G}OK${E}: model downloaded"
     fi

@@ -1,54 +1,87 @@
-# Agent 核心（自建框架，无 LangChain 依赖）
-httpx>=0.27           # DeepSeek API 客户端（OpenAI 兼容）
-python-dotenv>=1.0    # .env 加载
+# ⚠ 版本已全部锁定（== 硬钉）到维护者长期稳定运行的环境（Python 3.11.2）。
+#
+# 为什么锁死而不是用 >=：
+#   之前全用 >=，新装的人会拿到上游"当下最新版"。曾因此踩坑——
+#   新机器装到 transformers 5.12 / huggingface_hub 1.19，比稳定环境（5.9 / 1.16.4）新，
+#   bge 中文 embedding 的加载行为变了 → 长期记忆静默失效（中文检索拿不到结果）。
+#   钉死到"已知能跑"的整套版本，是让别人下载即用最稳的办法。
+#
+# 如果 pip 在你的 Python / 系统上找不到某一行的 wheel（比如你用的不是 3.11）：
+#   只把报错的那一行松成 >=，逐行试。但记忆栈（下面标了 ★ 的几行）尽量别动——
+#   动了中文长期记忆可能不报错地失效，最难排查。
+#
+# 建议：用 Python 3.11.x 装最省事（这套版本就是在 3.11 上验证的）。
 
-# 长期记忆（向量库 + 中文 embedding）
-chromadb>=1.0
-sentence-transformers>=5.0   # 加载 bge-base-zh-v1.5（本地路径），见 models/README.md
-huggingface_hub>=0.20        # install.bat 用 snapshot_download 下 bge 模型；显式声明防上游断链
+# ── Agent 核心（自建框架，无 LangChain 依赖）──
+httpx==0.28.1                 # DeepSeek API 客户端（OpenAI 兼容）
+python-dotenv==1.2.2          # .env 加载
 
-# Web 前端（FastAPI 替代 Streamlit）
-fastapi>=0.115
-uvicorn[standard]>=0.32
-jinja2>=3.1
-sse-starlette>=2.1
-python-multipart>=0.0.9
+# ── 长期记忆（向量库 + 中文 embedding）──
+chromadb==1.5.9               # ★ 向量库
+sentence-transformers==5.5.1  # ★ 加载 bge-base-zh-v1.5（本地路径），见 models/README.md
+huggingface_hub==1.16.4       # ★ install 时 snapshot_download 下 bge 模型；也是 transformers 的依赖
+# ↓ 下面几个是 sentence-transformers / chromadb 的传递依赖，但正是它们最爱悄悄升级、
+#   升级后把中文 embedding 搞挂。所以这里显式钉死，不让 pip 自由解析到新版。
+transformers==5.9.0           # ★ bge 模型的实际加载引擎，版本敏感
+tokenizers==0.22.2            # ★ 跟 transformers 强绑定，版本错配会报奇怪的错
+torch==2.12.0                 # ★ sentence-transformers 后端（CPU 版即可跑 embedding）
+safetensors==0.7.0            # ★ 模型权重格式
+onnxruntime==1.26.0           # chromadb 默认 embedding 后端（我们没用，但它装了就钉住防冲突）
+scikit-learn==1.8.0           # sentence-transformers 传递依赖
+scipy==1.17.1                 # 同上
 
-# 已有工具
-ddgs>=9.14            # DuckDuckGo 搜索（旧名 duckduckgo-search，9.x 起改名）
-requests>=2.31
-beautifulsoup4>=4.12
+# ── Web 前端（FastAPI 替代 Streamlit）──
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+starlette==1.1.0              # fastapi 的底层，显式钉死防 fastapi/starlette 版本错配
+pydantic==2.13.4              # fastapi 的数据校验底层，钉死防大版本漂移
+jinja2==3.1.6
+sse-starlette==3.4.4
+python-multipart==0.0.29
 
-# 办公自动化预装库（execute_code 可直接使用）
-pandas>=2.0
-openpyxl>=3.1
-numpy>=1.24
-matplotlib>=3.7
-seaborn>=0.13
-python-docx>=1.1
-python-pptx>=1.0
-pdfplumber>=0.10
-reportlab>=4.0
-Pillow>=10.0
+# ── 已有工具 ──
+ddgs==9.14.4                  # DuckDuckGo 搜索（旧名 duckduckgo-search，9.x 起改名）
+requests==2.34.2
+beautifulsoup4==4.14.3
 
-# 桌面应用打包（launcher.py / yuki.spec 用）
+# ── 办公自动化预装库（execute_code 可直接使用）──
+pandas==3.0.3
+openpyxl==3.1.5
+numpy==2.4.6
+matplotlib==3.10.9
+seaborn==0.13.2
+python-docx==1.2.0
+python-pptx==1.0.2
+pdfplumber==0.11.9
+reportlab==4.5.1
+Pillow==12.2.0
+
+# ── 桌面应用打包（launcher.py / yuki.spec 用）──
 # pywebview: 内嵌系统 webview（Win10+ WebView2 / Mac WKWebView / Linux WebKitGTK）
 # pystray:   跨平台系统托盘
-# pyinstaller: 打包成单 exe（仅打包时需要，运行不需要）
-pywebview>=5.0
-pystray>=0.19
-pyinstaller>=6.0          # 仅打包时用，运行可不装
+# pyinstaller: 打包成 exe（仅打包时需要，运行不需要）
+pywebview==6.2.1
+pystray==0.19.5
+pyinstaller==6.20.0           # 仅打包时用，运行可不装
 
-# 编程工具支持（tools/coding.py 的 lint / format / run_tests 用）
-ruff>=0.7                 # 静态检查 + 格式化
-pytest>=8.0               # 测试 runner
+# ── 编程工具支持（tools/coding.py 的 lint / format / run_tests 用）──
+ruff==0.15.15                 # 静态检查 + 格式化
+pytest==9.0.3                 # 测试 runner
 
-# 微信 iLink Bot 桥接（可选）
+# ── 代码符号索引（tools/code_indexer.py 的 4 个工具）──
+# code_search / code_outline / code_references / code_dependencies
+# 之前漏在 requirements 里 → 下载者一调这 4 个工具就 ModuleNotFoundError: tree_sitter_python
+# tree-sitter 在 0.21→0.22→0.25 多次改 Language()/Parser() API，钉死 0.23 这套验证过的
+tree-sitter==0.23.0
+tree-sitter-python==0.23.0
+tree-sitter-javascript==0.23.0
+
+# ── 微信 iLink Bot 桥接（可选）──
 # wechat_bridge.py 用；不开微信桥接可不装，install.bat 默认装
 # 腾讯官方 ClawBot 协议 Python SDK（合法接入，零封号风险）
-weixin-ilink>=0.3.5
+weixin-ilink==0.3.5
 
-# MCP（Model Context Protocol）客户端
+# ── MCP（Model Context Protocol）客户端 ──
 # tools/mcp_bridge.py 用；让 yuki 能连 Unity MCP / GitHub MCP 等外部工具
 # Anthropic 官方 Python SDK
-mcp>=1.0
+mcp==1.27.2

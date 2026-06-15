@@ -16,6 +16,7 @@ import mimetypes
 import os
 import re
 import sys
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -58,6 +59,11 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 # 注：视觉能力通过 vision_describe 工具调任意 OpenAI 兼容视觉端点
 # （由 .env 的 VISION_BASE_URL / VISION_API_KEY / VISION_MODEL 配置），
 # 不暴露在主对话模型下拉里。详见 tools/vision.py 注释。
+
+# 记忆系统（chromadb + bge）初始化失败时，启动预热 hook 把完整 traceback 存这里。
+# /api/health 和 /api/memory 据此把"记忆为什么坏了"直接告诉用户，
+# 而不是只 print 到用户根本看不到的控制台、前端只收到一个 500 Internal Server Error。
+MEMORY_INIT_ERROR: str | None = None
 
 # ── App ──────────────────────────────────────────────────────────────────────
 
@@ -110,14 +116,19 @@ async def _on_startup_auto_commit():
 # bge 已经 ready。代价: server 启动慢 3-5 秒（可接受，launcher 的 splash 覆盖）。
 @app.on_event("startup")
 async def _on_startup_warmup_chromadb():
+    global MEMORY_INIT_ERROR
     try:
         from memory import _get_collection
         _get_collection()           # 首次调用触发 bge 模型加载 + chromadb 客户端实例化
+        MEMORY_INIT_ERROR = None
         mark("FastAPI startup hook: chromadb + bge 同步预热完成")
     except Exception as e:
-        # 模型 / 数据有问题不阻塞 server 启动，让用户至少能用对话功能
-        # 后续访问 /api/memory 时会重新抛错给用户看
+        # 模型 / 数据有问题不阻塞 server 启动，让用户至少能用对话功能。
+        # 把完整 traceback 存进全局，/api/health 和 /api/memory 会据此
+        # 把根因直接显示给用户（最常见是没下 bge 模型 / 离线模式拿不到权重）。
+        MEMORY_INIT_ERROR = f"{type(e).__name__}: {e}"
         print(f"[startup-warmup] chromadb 预热失败（不阻塞）: {e}")
+        traceback.print_exc()
 
 
 # 启动时把 mcp.json 里 enabled 的 MCP server 都连上，注册它们的工具。
@@ -493,13 +504,35 @@ def _conv_summary(conv: dict) -> dict:
 
 @app.get("/api/health")
 async def health() -> dict:
-    """轻量探活端点 —— launcher 的 splash 画面用来判断 server 是否就绪。
+    """探活 + 健康检查端点。
 
-    可选 ``?warmed=1`` 参数：要求 chromadb embedding 模型已加载完
-    （懒加载首次访问要 3-5 秒）。launcher 会先调一次预热，再切主界面。
+    两个用途合一（曾经有两个同名 /api/health，后者被 FastAPI 静默忽略，
+    现已合并）：
+    - launcher 的 splash 画面用它判断 server 是否就绪（只看 HTTP 200）。
+    - 前端 / 排障用它确认记忆系统是否正常：``memory_ok=False`` 时
+      ``memory_error`` 直接给出根因（最常见是没下 bge 模型 / 离线拿不到权重），
+      不用再去翻控制台日志。
     """
-    from fastapi import Request
-    return {"ok": True, "convs": len(conversations)}
+    mem_ok = MEMORY_INIT_ERROR is None
+    mem_error = MEMORY_INIT_ERROR
+    mem_count = -1
+    if mem_ok:
+        # 预热成功才去数；数的时候万一又坏了也如实上报
+        try:
+            from memory import count_memories
+            mem_count = count_memories()
+        except Exception as e:
+            mem_ok = False
+            mem_error = f"{type(e).__name__}: {e}"
+    return {
+        "ok": True,
+        "convs": len(conversations),          # 兼容旧字段（launcher splash 探活）
+        "conversations": len(conversations),
+        "models": list(MODELS),
+        "memories": mem_count,
+        "memory_ok": mem_ok,
+        "memory_error": mem_error,
+    }
 
 
 @app.get("/api/conversations")
@@ -1354,8 +1387,19 @@ class UpdateMemoryRequest(BaseModel):
 
 @app.get("/api/memory")
 async def list_memory():
-    from memory import list_memories
-    return list_memories()
+    # 记忆系统启动就没初始化成功（没下 bge 模型等）→ 直接把根因告诉前端，
+    # 而不是抛一个前端只能显示成 "Internal Server Error" 的裸 500。
+    if MEMORY_INIT_ERROR is not None:
+        raise HTTPException(
+            503,
+            f"记忆系统未就绪：{MEMORY_INIT_ERROR}。"
+            f"通常是没下载 bge 嵌入模型，参见 models/README.md 或重跑 install。",
+        )
+    try:
+        from memory import list_memories
+        return list_memories()
+    except Exception as e:
+        raise HTTPException(503, f"读取记忆失败：{type(e).__name__}: {e}")
 
 
 @app.post("/api/memory")
@@ -1913,21 +1957,9 @@ async def submit_ask_user_answer(ask_id: str, payload: AskUserAnswer):
     return {"ok": True}
 
 
-# ── 健康检查 ─────────────────────────────────────────────────────────────────
-
-@app.get("/api/health")
-async def health():
-    from memory import count_memories
-    try:
-        mem_count = count_memories()
-    except Exception:
-        mem_count = -1
-    return {
-        "status": "ok",
-        "models": list(MODELS),
-        "conversations": len(conversations),
-        "memories": mem_count,
-    }
+# 注：健康检查端点 /api/health 在前面（list_conversations 上方）定义，
+# 已合并记忆健康信息。这里原本有第二个同名 /api/health，被 FastAPI
+# 静默忽略（同路径只生效第一个），已删除。
 
 
 # ── 入口 ─────────────────────────────────────────────────────────────────────

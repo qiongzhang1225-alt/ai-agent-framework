@@ -71,10 +71,13 @@ git clone https://hf-mirror.com/BAAI/bge-base-zh-v1.5 models/bge-base-zh-v1.5
 ### 方法 3：huggingface_hub SDK
 
 ```python
+import os
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"   # 国内走镜像
+os.environ["HF_HUB_DISABLE_XET"] = "1"                # 关掉 xet，大文件才走镜像能代理的经典下载
 from huggingface_hub import snapshot_download
 snapshot_download(
     "BAAI/bge-base-zh-v1.5",
-    local_dir="E:/AI-Agent/models/bge-base-zh-v1.5",
+    local_dir="models/bge-base-zh-v1.5",              # 相对项目目录；别写死成别人机器的绝对路径
     local_dir_use_symlinks=False,
 )
 ```
@@ -87,7 +90,7 @@ snapshot_download(
 
 ```python
 from sentence_transformers import SentenceTransformer
-m = SentenceTransformer('E:/AI-Agent/models/bge-base-zh-v1.5')
+m = SentenceTransformer('models/bge-base-zh-v1.5')
 print(m.get_embedding_dimension())   # 应输出 768
 print(m.encode(['你好'])[0][:5])      # 应输出一个浮点向量
 ```

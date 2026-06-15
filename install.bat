@@ -96,6 +96,8 @@ if exist "models\bge-base-zh-v1.5\pytorch_model.bin" (
     ) else (
         echo   Downloading...
         set HF_ENDPOINT=https://hf-mirror.com
+        REM 关掉 xet 后端，否则大文件重定向到 hf-mirror 不代理的 cas-bridge.xethub.hf.co 会断流
+        set HF_HUB_DISABLE_XET=1
         .venv\Scripts\python.exe -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5', local_dir_use_symlinks=False)"
         if errorlevel 1 (
             echo   [ERROR] download failed

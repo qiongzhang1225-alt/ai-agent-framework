@@ -13,22 +13,28 @@ __pycache__/
 .pytest_cache/
 
 # ── 运行时数据（用户私有，不入 git）──────────────────────────────────
-.sandbox/                 # 对话历史 + workspace
-.memory/                  # ChromaDB 向量库
-.skills_trash/            # 删除技能的回收站（7 天）
-.skills_backups/          # 定期备份
-.memory_backups/          # 定期备份
-.execute_trash/           # execute_code 覆盖前的快照（7 天）
+# ⚠ gitignore 不支持「模式 + 行内注释」：注释必须独占一行，否则整行被当字面模式 → 规则失效、私有数据被提交
+# .sandbox/=对话历史+workspace   .memory/=ChromaDB 向量库
+# .skills_trash/=删技能回收站(7天)   .skills_backups/ .memory_backups/=定期备份
+# .execute_trash/=execute_code 覆盖前快照(7天)
+.sandbox/
+.memory/
+.skills_trash/
+.skills_backups/
+.memory_backups/
+.execute_trash/
 
 # ── launcher 运行时 ─────────────────────────────────────────────────
-.yuki.lock                # 单实例锁
-.yuki-launcher.log        # exe 日志
+# .yuki.lock=单实例锁   .yuki-launcher.log=exe 日志
+.yuki.lock
+.yuki-launcher.log
 
 # ── 备份文件 ────────────────────────────────────────────────────────
 *.bak
 *.bak2
 *.bak3
-conv.json.pre-*.bak       # 主对话压缩前快照
+# conv.json.pre-*.bak（主对话压缩前快照）—— 已被上面 *.bak 覆盖，保留此行表意
+conv.json.pre-*.bak
 
 # ── 本地 embedding 模型（390MB，用户自行下载）────────────────────────
 models/*
