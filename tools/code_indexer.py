@@ -358,7 +358,7 @@ class CodeIndexer:
         if node.type == "class_definition":
             name_node = node.child_by_field_name("name")
             if name_node:
-                name = code[name_node.start_byte:name_node.end_byte]
+                name = name_node.text.decode("utf-8")
                 symbols.append(SymbolEntry(
                     name=name, kind="definition", symbol_type="class",
                     file=relpath, line=node.start_point[0] + 1,
@@ -377,7 +377,7 @@ class CodeIndexer:
         if node.type == "function_definition":
             name_node = node.child_by_field_name("name")
             if name_node:
-                name = code[name_node.start_byte:name_node.end_byte]
+                name = name_node.text.decode("utf-8")
                 sym_type = "method" if parent_class else "function"
                 qualified = f"{parent_class}.{name}" if parent_class else name
                 symbols.append(SymbolEntry(
@@ -410,7 +410,7 @@ class CodeIndexer:
         if node.type == "call":
             func_node = node.child_by_field_name("function")
             if func_node:
-                name = code[func_node.start_byte:func_node.end_byte]
+                name = func_node.text.decode("utf-8")
                 if "." not in name and not name.startswith("self."):
                     symbols.append(SymbolEntry(
                         name=name, kind="reference", symbol_type="function",
@@ -445,7 +445,7 @@ class CodeIndexer:
         if node.type == "class_declaration":
             name_node = node.child_by_field_name("name")
             if name_node:
-                name = code[name_node.start_byte:name_node.end_byte]
+                name = name_node.text.decode("utf-8")
                 symbols.append(SymbolEntry(
                     name=name, kind="definition", symbol_type="class",
                     file=relpath, line=node.start_point[0] + 1,
@@ -465,7 +465,7 @@ class CodeIndexer:
         if node.type == "method_definition":
             name_node = node.child_by_field_name("name")
             if name_node:
-                name = code[name_node.start_byte:name_node.end_byte]
+                name = name_node.text.decode("utf-8")
                 qualified = f"{parent_class}.{name}" if parent_class else name
                 symbols.append(SymbolEntry(
                     name=name, kind="definition", symbol_type="method",
@@ -490,7 +490,7 @@ class CodeIndexer:
         if node.type == "function_declaration":
             name_node = node.child_by_field_name("name")
             if name_node:
-                name = code[name_node.start_byte:name_node.end_byte]
+                name = name_node.text.decode("utf-8")
                 symbols.append(SymbolEntry(
                     name=name, kind="definition", symbol_type="function",
                     file=relpath, line=node.start_point[0] + 1,
@@ -513,7 +513,7 @@ class CodeIndexer:
             name_node = node.child_by_field_name("name")
             value_node = node.child_by_field_name("value")
             if name_node and value_node and value_node.type in ("arrow_function", "function"):
-                name = code[name_node.start_byte:name_node.end_byte]
+                name = name_node.text.decode("utf-8")
                 symbols.append(SymbolEntry(
                     name=name, kind="definition", symbol_type="function",
                     file=relpath, line=node.start_point[0] + 1,
@@ -554,7 +554,7 @@ class CodeIndexer:
         if node.type == "call_expression":
             func_node = node.child_by_field_name("function")
             if func_node:
-                name = code[func_node.start_byte:func_node.end_byte]
+                name = func_node.text.decode("utf-8")
                 if not name.startswith("this.") and not name.startswith("console."):
                     symbols.append(SymbolEntry(
                         name=name, kind="reference", symbol_type="function",
