@@ -66,58 +66,8 @@ def get_current_datetime() -> str:
     return datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")
 
 
-# ── web_search ───────────────────────────────────────────────────────────────
-
-_BING_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
-
-
-@tool
-def web_search(query: str) -> str:
-    """搜索互联网，获取**实时信息**（Bing 后端）。
-
-    什么时候必须用：
-    - 用户问"今天 / 现在 / 最新 / 目前"的状态（天气、新闻、价格、版本号、汇率等）
-    - 用户问任何具体日期 / 时段的事件、赛事结果
-    - 用户问某个人 / 公司 / 产品的最近动态
-    - 你不确定某个事实，或它在你的训练截止之后
-
-    什么时候**不**用：
-    - 纯数学 / 逻辑推理
-    - 用户上传的文件内容分析
-    - 代码相关问题（除非问"最新版本"之类）
-
-    返回 5 条结果，每条含 title / url / snippet。
-    """
-    try:
-        resp = requests.get(
-            "https://cn.bing.com/search",
-            params={"q": query},
-            headers=_BING_HEADERS,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select("li.b_algo")
-        if not items:
-            return f"未找到与 '{query}' 相关的结果"
-        formatted = []
-        for item in items[:5]:
-            a_tag = item.select_one("h2 a")
-            if not a_tag:
-                continue
-            title = a_tag.get_text(strip=True)
-            href = a_tag.get("href", "")
-            cap = item.select_one(".b_caption p") or item.select_one(".b_lineclamp2")
-            snippet = cap.get_text(strip=True) if cap else ""
-            formatted.append(f"- {title}\n  {href}\n  {snippet}")
-        return "\n\n".join(formatted) if formatted else f"未找到与 '{query}' 相关的结果"
-    except Exception as e:
-        return f"搜索失败: {e}"
-
-
 # ── fetch_webpage ────────────────────────────────────────────────────────────
+# 注：网络搜索已迁移到统一的 search 工具（tools/search.py + tools/_search/）。
 
 @tool
 def fetch_webpage(url: str) -> str:

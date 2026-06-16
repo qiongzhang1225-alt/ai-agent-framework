@@ -10,7 +10,8 @@ agent.py 只需 ``import tools`` 一行，即可让 18 个工具全部就绪。
 - ``tools/``（本包）是业务工具实现（calc / web / files / memory / skills 等）
 """
 
-from . import basic          # noqa: F401  - 基础工具
+from . import basic          # noqa: F401  - 基础工具（calculate / 当前时间 / fetch_webpage）
+from . import search         # noqa: F401  - 统一搜索（1 个 search 工具，内部 tools/_search/ 多引擎）
 from . import execute        # noqa: F401  - execute_code（沙箱）
 from . import memory_tools   # noqa: F401  - 长期记忆（5 个 + 撤销 3 个）
 from . import files          # noqa: F401  - 文件读写编辑（5 个）
@@ -31,5 +32,4 @@ from . import postmortem     # noqa: F401  - write_postmortem 任务复盘 + 自
 from . import coding         # noqa: F401  - lint / format / run_tests / apply_patch / find_references / smoke_test（6 个）
 from . import sub_complete   # noqa: F401  - complete_sub_conversation（1 个，sub 给主对话留摘要）
 from . import changelog      # noqa: F401  - regenerate_changelog（1 个，从 git log 重建 CHANGELOG.md）
-from . import aggregate_search  # noqa: F401  - aggregate_search 多引擎聚合搜索（1 个）
 from . import code_indexer   # noqa: F401  - tree-sitter 代码索引（4 个: code_search / code_outline / code_references / code_dependencies）

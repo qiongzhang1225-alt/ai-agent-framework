@@ -24,7 +24,7 @@ SKILLS_TRASH_KEEP_DAYS = 7
 
 # 用于检查 skill 的合法性（define_skill / delete_skill 中拒绝"覆盖核心工具"的保护）
 _CORE_TOOL_NAMES = frozenset({
-    "web_search", "fetch_webpage", "calculate", "get_current_datetime",
+    "search", "fetch_webpage", "calculate", "get_current_datetime",
     "execute_code", "remember", "recall",
     "update_memory", "merge_memories", "forget_memory",
     "restore_memory", "restore_skill", "list_trash",

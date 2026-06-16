@@ -262,7 +262,7 @@ AI 通过 `self_edit` 工具集修改自己：
 │   ├── skills.py        持久化技能（define_skill）
 │   ├── todo.py          任务清单
 │   ├── venv_install.py  装包到工作区 .venv
-│   ├── aggregate_search.py  多引擎聚合搜索
+│   ├── search.py        统一搜索（内部 _search/ 多引擎并发 + 去重降级）
 │   └── changelog.py     git log 重建 CHANGELOG.md
 │
 ├── prompts/
