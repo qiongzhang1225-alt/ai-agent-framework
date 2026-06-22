@@ -4,7 +4,7 @@
 用户让有希做白天主题，她改了 23 次 CSS。每次改完她**看不到**实际效果，
 只能猜，所以反复堆补丁。这工具让她改完一步立刻：
 1. 截当前页面 → workdir/.ui_check/<timestamp>.png
-2. 调 MiMo vision_describe 看截图，对比她的预期
+2. 调 vision_describe 看截图（视觉路由链：GLM / Qwen），对比她的预期
 3. 不符合预期 → 改代码再截图，不需要等主人反馈
 
 依赖 ``playwright`` + chromium。没装时返回明确提示让有希调
@@ -99,10 +99,10 @@ async def screenshot_and_describe(
     full_page: bool = False,
     config: dict = None,
 ) -> str:
-    """截当前 UI 截图 → 调 MiMo vision 看 → 对比 expectation 给反馈。
+    """截当前 UI 截图 → 调视觉模型看 → 对比 expectation 给反馈。
 
     **UI / 主题 / CSS 类任务的核心自检工具**。改完代码立刻调本工具，
-    不要等主人反馈。MiMo 描述不符合预期 → 改代码再调，直到符合。
+    不要等主人反馈。视觉描述不符合预期 → 改代码再调，直到符合。
 
     什么时候用：
     - 你刚改完 ``static/style.css`` / ``templates/index.html`` 的视觉部分
@@ -117,8 +117,8 @@ async def screenshot_and_describe(
     流程（自动）：
     1. playwright headless chromium 打开 url → 截图
     2. 存到 ``<workdir>/.ui_check/shot_<id>.png``
-    3. 调 ``vision_describe`` 让 MiMo 看截图描述视觉效果
-    4. 拼接 expectation + MiMo 描述返回给你，自己判断是否符合
+    3. 调 ``vision_describe`` 让视觉模型看截图描述视觉效果
+    4. 拼接 expectation + 视觉描述返回给你，自己判断是否符合
 
     依赖：playwright + chromium。没装时工具返回明确引导让你调
     ``request_pip_install('playwright')``。
@@ -126,13 +126,13 @@ async def screenshot_and_describe(
     参数：
         url: 要截图的页面（默认本地 ``http://127.0.0.1:3616/``）
         expectation: 你的设计预期（如"输入框文字暖灰色不是黑色，
-            背景应该是低饱和粉紫"）。**强烈建议填**，否则 MiMo 不知道
+            背景应该是低饱和粉紫"）。**强烈建议填**，否则视觉模型不知道
             你的目标，反馈意义减半
         selector: 可选 CSS 选择器，只截某区域（如 ``".chat-input"``）
         full_page: True 截整页（包含滚动区），False（默认）只截 viewport
 
     返回：
-        截图路径 + MiMo 视觉分析 + expectation 对比指引。
+        截图路径 + 视觉分析 + expectation 对比指引。
     """
     cfg = (config or {}).get("configurable", {}) if config else {}
 
@@ -209,7 +209,7 @@ async def screenshot_and_describe(
         f"✓ 已截图 {out_name}{selector_note}{fullpage_note}",
         f"路径：``{rel_path}``",
         "",
-        "### MiMo 视觉分析",
+        "### 视觉分析",
         vision_result.strip(),
     ]
     if expectation:
@@ -226,6 +226,6 @@ async def screenshot_and_describe(
             "",
             "### 自检指引",
             "对比你的设计意图判断是否符合。**没提供 expectation 时建议下次填**，"
-            "MiMo 没有目标无法精准对比，反馈意义减半。",
+            "视觉模型没有目标无法精准对比，反馈意义减半。",
         ]
     return "\n".join(parts)

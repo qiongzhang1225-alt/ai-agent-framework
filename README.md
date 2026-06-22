@@ -11,7 +11,7 @@
 - **桌面应用** —— pywebview 独立窗口 + 系统托盘，无需浏览器
 - **可自我进化** —— AI 能修改自己的代码 / prompts，每次改动都是 git commit 随时回滚
 - **长期记忆** —— ChromaDB + bge-base-zh-v1.5 中文 embedding，跨对话持久
-- **多模型路由** —— DeepSeek（默认）+ 小米 MiMo（视觉）
+- **多模型路由** —— DeepSeek（默认）+ 视觉路由链（GLM / Qwen，自动故障转移）
 - **主-子对话架构** —— 主对话维持长期人设，子对话做独立任务
 - **复杂任务三段式** —— plan_task / verify_change / write_postmortem
 - **断点续传** —— 工具调用撞 60 轮上限时，点"继续"按钮无损接续
@@ -236,7 +236,7 @@ AI 通过 `self_edit` 工具集修改自己：
 ├── ai_agent/            自建 Agent 框架（取代 LangChain）
 │   ├── messages.py      Message / ToolCall（含 reasoning_content）
 │   ├── tools.py         @tool 装饰器 + 注册表
-│   ├── llm.py           DeepSeek / MiMo 流式客户端
+│   ├── llm.py           DeepSeek 流式客户端（MiMo 兼容类保留）
 │   ├── loop.py          ReAct loop（max 60 轮，撞墙断点续传）
 │   └── persist.py       JSONCheckpoint
 │
@@ -251,7 +251,7 @@ AI 通过 `self_edit` 工具集修改自己：
 │   │                    / references / dependencies，比 grep 准）
 │   ├── memory_tools.py  长期记忆 CRUD
 │   ├── dialog.py        ask_user 弹窗 + audit_stats 自查
-│   ├── vision.py        MiMo 视觉
+│   ├── vision.py        视觉路由链（GLM / Qwen）
 │   ├── self_edit.py     自我修改（含每 20 次 commit 后自查提示）
 │   ├── plan.py          复杂任务规划
 │   ├── verify.py        变更断言
@@ -319,5 +319,5 @@ MIT License - 见 [LICENSE](LICENSE)。
 ## 致谢
 
 - 角色灵感：长门有希（《凉宫春日》系列，谷川流著）
-- 模型：DeepSeek / 小米 MiMo
+- 模型：DeepSeek（对话）+ GLM / Qwen（视觉）
 - Embedding：[BAAI/bge-base-zh-v1.5](https://huggingface.co/BAAI/bge-base-zh-v1.5)

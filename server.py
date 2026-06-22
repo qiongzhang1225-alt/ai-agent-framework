@@ -684,7 +684,7 @@ def _build_user_content_with_image_refs(
     """处理用户消息：图片存盘 + 文本里塞 image_id 占位让 DeepSeek 知道有图。
 
     返回 (content_text, saved_image_ids)。content 永远是 str（不再用多模态 list），
-    DeepSeek 看到占位后会主动调 vision_describe 工具向 MiMo 询问。
+    DeepSeek 看到占位后会主动调 vision_describe 工具调视觉模型询问。
     """
     saved_ids: list[str] = []
     for d in images or []:
@@ -698,7 +698,7 @@ def _build_user_content_with_image_refs(
     refs = "、".join(saved_ids)
     suffix = (
         f"\n\n[已上传图片：{refs}（你看不到，需要调 vision_describe(image_id, question) "
-        f"让 MiMo 看图回答）]"
+        f"让视觉模型看图回答）]"
     )
     full = (text or "").rstrip() + suffix if text else suffix.lstrip()
     return full, saved_ids
@@ -747,7 +747,7 @@ async def chat(req: ChatRequest, request: Request):
 
     async def event_gen() -> AsyncIterator[dict]:
         # 模型路由：永远按对话原 model（DeepSeek 主导）。
-        # 视觉能力通过 vision_describe 工具调 MiMo 实现，无需切模型。
+        # 视觉能力通过 vision_describe 工具调视觉模型实现，无需切模型。
         # master 对话会在 prompt 里注入已批准的子摘要 —— 由 get_agent_for_conv 处理。
         agent_obj = get_agent_for_conv(conv)
 

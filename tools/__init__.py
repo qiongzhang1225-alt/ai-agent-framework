@@ -18,7 +18,7 @@ from . import files          # noqa: F401  - 文件读写编辑（5 个）
 from . import skills         # noqa: F401  - 持久化技能（3 个 + restore） + 启动时加载已有技能
 from . import todo           # noqa: F401  - 对话级 todo 清单（2 个）
 from . import dialog         # noqa: F401  - 主动追问 ask_user（1 个）
-from . import vision         # noqa: F401  - 视觉识别 vision_describe（1 个，调 MiMo）
+from . import vision         # noqa: F401  - 视觉路由链（2 个: vision_describe 看图 + vision_check 自检）
 from . import shell          # noqa: F401  - 系统命令白名单 run_command（1 个）
 from . import self_edit      # noqa: F401  - 自我修改 self_read/edit/write/rollback/diff（5 个）
 from . import spawn_sub      # noqa: F401  - 主对话里 spawn_sub_conversation（1 个）

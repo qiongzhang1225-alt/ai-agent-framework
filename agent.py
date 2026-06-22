@@ -166,8 +166,8 @@ def create_agent(model: str = "deepseek-v4-flash", conv: dict | None = None) -> 
 
     主对话只用 DeepSeek（``deepseek-v4-flash`` / ``deepseek-v4-pro``）。
     视觉识别通过 ``vision_describe`` 工具独立调任意 OpenAI 兼容视觉
-    端点（``VISION_BASE_URL`` / ``VISION_API_KEY`` / ``VISION_MODEL``
-    三件套或回退 MIMO_API_KEY），不暴露在主模型选择里。
+    端点路由链（``VISION_*`` 主力 → ``VISION_*_2`` 备用 → ``VISION_*_3`` 最强保底，
+    自动故障转移），不暴露在主模型选择里。
 
     - reasoning_content 处理已内建到 ``Message.to_openai()``
     - tools 动态绑定（每次 astream 从 _REGISTRY 拉取）

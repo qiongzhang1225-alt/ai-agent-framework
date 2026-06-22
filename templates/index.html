@@ -1074,7 +1074,7 @@
               </div>
             </template>
             <span class="text-xs text-zinc-500 self-center ml-1"
-                  x-text="`${pendingImages.length} 张图片（发送时会切到 MiMo）`"></span>
+                  x-text="`${pendingImages.length} 张图片（发送时调视觉模型）`"></span>
           </div>
         </template>
 
@@ -1126,7 +1126,7 @@
           <button
             @click="$refs.imageInput.click()"
             class="shrink-0 w-9 h-9 flex items-center justify-center text-zinc-400 hover:text-white transition rounded-lg"
-            title="贴图给有希看（自动用 MiMo 视觉模型）"
+            title="贴图给有希看（自动用视觉模型）"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -2743,7 +2743,7 @@
               continue;
             }
             if (f.size > 10 * 1024 * 1024) {
-              alert(`${f.name} 超过 10MB，跳过（MiMo 单图上限 50MB，但 base64 编码后会膨胀 ~33%）`);
+              alert(`${f.name} 超过 10MB，跳过（base64 编码后会膨胀 ~33%，视觉模型有单图上限）`);
               continue;
             }
             const key = this._fileKey(f);
@@ -2833,7 +2833,7 @@
         },
 
         handlePaste(e) {
-          // 粘贴剪贴板里的图片 / 文件 —— 图片走"贴图给有希看"路径（→ MiMo 识别），
+          // 粘贴剪贴板里的图片 / 文件 —— 图片走"贴图给有希看"路径（→ 视觉模型识别），
           // 其他文件走"上传到工作目录"路径
           const fl = e.clipboardData?.files;
           if (!fl || !fl.length) return;
