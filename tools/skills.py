@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -269,6 +270,97 @@ def list_skills() -> str:
     if not skills:
         return "（尚无自定义技能）"
     return "\n".join(skills)
+
+
+@tool
+def search_tools(query: str, max_results: int = 8) -> str:
+    """按用途检索并**当场激活**你当前没绑定的工具（关键词路由漏了时的逃生阀）。
+
+    为省 token，系统每轮只给你绑定与当前任务相关的工具子集。如果你判断需要某个
+    能力、但当前可用工具列表里找不到对应工具，**先调本工具**按用途描述把它捞出来：
+    命中的工具会被**立即激活，你下一步就能直接调用**，无需主人重启或手动添加。
+
+    什么时候用：
+    - 你想做某件事（跑测试 / 查代码引用 / 操作 unity 场景 / 整理记忆…）却发现没有对应工具
+    - 收到"未知工具 X"之类的错误 —— 说明 X 没被绑定，用本工具激活它
+    什么时候不用：当前列表里已有能干这件事的工具时，别多此一举。
+
+    Args:
+        query: 你要的能力的关键词/短语，可中英混合、空格分隔多个词，例如
+            "运行单元测试"、"代码 引用 查找"、"unity 场景 gameobject"。
+            会同时匹配工具名和工具说明。
+        max_results: 最多激活几个（默认 8；一次激活太多反而稀释选择）。
+
+    Returns:
+        命中并已激活的工具清单（名称 + 一句话说明）。标 [新激活] 的下一步即可直接调用。
+    """
+    from ai_agent.tools import list_tools, stage_tools_into_turn
+
+    raw = (query or "").strip()
+    if not raw:
+        return "需要给个用途描述，例如 search_tools('运行测试') 或 search_tools('代码 引用查找')。"
+    ql = raw.lower()
+    words = [w for w in re.split(r"[\s,，、/]+", ql) if w]
+    # 中文无空格：长词（如 "运行单元测试"）整串子串匹配不到任何工具 → 漏召回。
+    # 解法：只对**连续中文段**做 2-gram 展开（运行单元测试 → 运行/单元/测试…），
+    # 英文/数字段保持整体（避免把 "word" 切成 wo/or/rd 去误命中 workflow 之类）。
+    terms = set(words)
+    for w in words:
+        for cjk in re.findall(r"[一-鿿]{2,}", w):
+            if len(cjk) == 2:
+                terms.add(cjk)
+            else:
+                terms.update(cjk[i:i + 2] for i in range(len(cjk) - 1))
+        terms.update(re.findall(r"[a-z0-9]{2,}", w))
+
+    # 按字段加权，治 bag-of-words 误命中：docstring **首行是语义摘要**，正文多是
+    # 功能清单 / 参数说明（如 md_to_docx 正文含「代码块」「引用块」会把它误抬到
+    # code_references 之上）。所以 名字(10) > 首行(6) > 正文(1)，让真正相关的排上来。
+    scored: list = []  # (score, covered, name, tool)
+    for t in list_tools():
+        if t.name == "search_tools":
+            continue
+        name = t.name.lower()
+        full = (t.description or "").lower()
+        summary, _, body = full.partition("\n")  # 首行摘要 vs 其余正文
+        score = 0
+        covered = 0  # 命中了几个不同的查询词（覆盖率，做次级排序）
+        for term in terms:
+            if term in name:
+                score += 10; covered += 1
+            elif term in summary:
+                score += 6; covered += 1
+            elif term in body:
+                score += 1; covered += 1
+        if ql in name:        # 整串命中工具名 → 最强
+            score += 15
+        elif ql in summary:   # 整串命中摘要 → 次强
+            score += 8
+        if score > 0:
+            scored.append((score, covered, t.name, t))
+
+    if not scored:
+        return (
+            f"没找到与 “{query}” 相关的工具。换个说法再试一次，"
+            f"或参考核心 prompt 附录的工具速查找全量清单。"
+        )
+    scored.sort(key=lambda x: (-x[0], -x[1], x[2]))
+    # 砍弱尾：丢掉得分远低于头名的纯正文噪声（< 头名 35%），但至少保留前 3 个备选，
+    # 保证短查询（弱命中）时召回不被误伤。
+    top = scored[0][0]
+    floor = top * 0.35
+    kept = [s for i, s in enumerate(scored) if i < 3 or s[0] >= floor]
+    hits = [s[3] for s in kept[:max_results]]
+    activated = set(stage_tools_into_turn(hits))
+
+    lines = [
+        f"找到 {len(hits)} 个相关工具，其中 {len(activated)} 个刚激活（标 [新激活] 的可直接调用）："
+    ]
+    for t in hits:
+        head = (t.description or "").strip().split("\n", 1)[0][:80]
+        tag = "[新激活]" if t.name in activated else "[已可用]"
+        lines.append(f"- {t.name} {tag}: {head}")
+    return "\n".join(lines)
 
 
 def _move_skill_to_trash(skill_path: Path) -> Path:

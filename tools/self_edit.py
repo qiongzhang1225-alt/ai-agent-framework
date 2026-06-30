@@ -27,9 +27,13 @@
 
 权限分级（_validate_path）：
 
-- **L0 永不可改**（即使主人在 prompt 里说"放权"工具也硬拒绝）：
-    .env, .env.example, requirements.txt, .gitignore, .git/* (用户明确说"配置不改")
-- **可改**：``tools/`` / ``ai_agent/`` / ``prompts/`` 前缀 + 6 个根入口文件
+- **硬红线**（连主人放权也硬拒绝）：``.env``（含密钥，误触整个应用瘫痪）/
+    ``.git/*``（破坏 git 历史会失去回滚能力）
+- **需主人同意才改**（危险但合法）：``.env.example`` / ``requirements.txt`` /
+    ``.gitignore``。直接调被拒，提示先 ``ask_user`` 说清"改什么/为什么/风险"，
+    获批后带 ``user_approved=True`` 重试放行。
+- **直接可改**：``tools/`` / ``ai_agent/`` / ``prompts/`` / ``templates/`` /
+    ``static/`` 前缀 + 6 个根入口文件
     (agent.py, server.py, audit.py, backups.py, paths.py, memory.py)
 """
 from __future__ import annotations
@@ -44,13 +48,19 @@ from paths import PROJECT_ROOT
 
 # ── 路径权限分级 ─────────────────────────────────────────────────────────────
 
-# L0 永不可改（主人不希望改的配置文件 + git 历史本身）
-_L0_BLOCKED_FILES = frozenset({
-    ".env", ".env.example",
+# 硬红线：连主人放权也不碰。
+#   .env —— 含密钥，误触会让整个应用瘫痪
+#   .git/ —— 内部文件，破坏会失去回滚能力（见 _HARD_BLOCKED_PREFIXES）
+_HARD_BLOCKED_FILES = frozenset({".env"})
+_HARD_BLOCKED_PREFIXES = (".git/", ".git\\")
+
+# 需主人同意才改（危险但合法）：路径合法，但直接调会被拒，提示先 ask_user，
+# 获批后带 user_approved=True 重试才放行。改这些会影响依赖安装 / 构建 / 忽略规则。
+_APPROVAL_REQUIRED_FILES = frozenset({
+    ".env.example",
     "requirements.txt",
     ".gitignore",
 })
-_L0_BLOCKED_PREFIXES = (".git/", ".git\\")
 
 # 可改的白名单前缀
 _ALLOWED_PREFIXES = (
@@ -377,28 +387,34 @@ def _check_sub_restricted(config: dict) -> str | None:
     return None
 
 
-def _validate_path(path: str) -> tuple[Path | None, str | None]:
-    """校验 path 是否允许 self_edit 写入。返回 (abs_path, error_msg)。"""
+def _validate_path(path: str) -> tuple[Path | None, str | None, bool]:
+    """校验 path 是否允许 self_edit 写入。
+
+    返回 ``(abs_path, error_msg, requires_approval)``：
+    - error_msg 非 None → 直接拒绝（硬红线 / 越界 / 不在白名单）。
+    - requires_approval=True → 路径合法但属"危险但合法"文件，调用方需在
+      ``user_approved=True`` 时才放行。
+    """
     p = (path or "").strip().replace("\\", "/")
     if not p:
-        return None, "path 不能为空"
+        return None, "path 不能为空", False
 
     # 必须用相对路径（防她传绝对路径绕过）
     if Path(p).is_absolute():
-        return None, "path 必须是项目相对路径，不要用绝对路径"
+        return None, "path 必须是项目相对路径，不要用绝对路径", False
 
-    # 黑名单文件（精确匹配）
-    if p in _L0_BLOCKED_FILES:
-        return None, f"{p!r} 是配置文件，主人明确不希望改"
+    # 硬红线文件（连放权也不碰）
+    if p in _HARD_BLOCKED_FILES:
+        return None, f"{p!r} 含密钥，误触会让整个应用瘫痪——硬红线，连放权也不可改", False
 
-    # .git/ 目录
-    for prefix in _L0_BLOCKED_PREFIXES:
+    # .git/ 目录（硬红线）
+    for prefix in _HARD_BLOCKED_PREFIXES:
         if p.startswith(prefix):
-            return None, ".git/ 目录不可触碰（破坏 git 历史会失去回滚能力）"
+            return None, ".git/ 目录不可触碰（破坏 git 历史会失去回滚能力）——硬红线", False
 
-    # 白名单（前缀 或 根文件）
+    # 白名单（前缀 或 根文件 或 需同意文件）
     is_allowed = False
-    if p in _ALLOWED_ROOT_FILES:
+    if p in _ALLOWED_ROOT_FILES or p in _APPROVAL_REQUIRED_FILES:
         is_allowed = True
     else:
         for prefix in _ALLOWED_PREFIXES:
@@ -409,17 +425,30 @@ def _validate_path(path: str) -> tuple[Path | None, str | None]:
         return None, (
             f"{p!r} 不在可改路径白名单。允许：根入口文件"
             f"（{', '.join(sorted(_ALLOWED_ROOT_FILES))}）"
-            f" 或 ``tools/`` / ``ai_agent/`` / ``prompts/`` 前缀"
-        )
+            f" 或 ``tools/`` / ``ai_agent/`` / ``prompts/`` / ``templates/`` /"
+            f" ``static/`` 前缀"
+        ), False
 
     # 解析绝对路径 + 越界校验
     try:
         abs_path = (PROJECT_ROOT / p).resolve()
         abs_path.relative_to(PROJECT_ROOT.resolve())
     except (ValueError, OSError) as e:
-        return None, f"路径解析失败或越界：{e}"
+        return None, f"路径解析失败或越界：{e}", False
 
-    return abs_path, None
+    requires_approval = p in _APPROVAL_REQUIRED_FILES
+    return abs_path, None, requires_approval
+
+
+def _approval_gate_msg(path: str) -> str:
+    """受保护文件未获批时的统一拒绝提示（引导先 ask_user 再带 user_approved 重试）。"""
+    return (
+        f"⚠️ {path!r} 是受保护文件（改动会影响依赖安装 / 构建 / 忽略规则），"
+        "需要主人同意才能改。\n"
+        "请先 ask_user 向主人说清：① 要改什么 ② 为什么 ③ 风险；"
+        "获批后带 user_approved=True 重新调用本工具放行。\n"
+        "不要因为被拒就绕道（比如改别的文件 hack 进去）或直接放弃。"
+    )
 
 
 # ── 改后校验 + rollback ─────────────────────────────────────────────────────
@@ -471,7 +500,8 @@ def self_read_file(path: str, offset: int = 0, limit: int = 0) -> str:
     什么时候用：
     - 你想改某个工具，先 ``self_read_file("tools/files.py")`` 看完再 ``self_edit_file``
     - 主人问"你内部是怎么实现的"，可以读完再解释
-    - 你想看自己的 SYSTEM_PROMPT 是怎么写的 → ``self_read_file("prompts/system.md")``
+    - 你想看自己的 SYSTEM_PROMPT 是怎么写的 → ``self_read_file("prompts/core.md")``
+      （核心宪法在 ``prompts/constitution.md``，领域手册在 ``prompts/playbooks/``）
 
     **行切片**（offset / limit）：
     - 默认 ``offset=0, limit=0`` → 整文件读（保持原行为，最多 30000 字符）
@@ -481,11 +511,12 @@ def self_read_file(path: str, offset: int = 0, limit: int = 0) -> str:
       2. 再 ``self_read_file("tools/foo.py", offset=N, limit=60)`` 精读关键段
 
     路径限制：
-    - **可读**项目内任何文件（含 ``ai_agent/`` / ``audit.py`` 等系统代码）
-    - **不可读** ``.env`` / ``.env.example``（含密钥）/ ``.git/`` 目录
+    - **可读**项目内任何文件（含 ``ai_agent/`` / ``audit.py`` 等系统代码；
+      ``.env.example`` / ``requirements.txt`` / ``.gitignore`` 也可读）
+    - **不可读** ``.env``（含密钥）/ ``.git/`` 目录
 
     Args:
-        path: 项目相对路径（如 ``"tools/files.py"`` / ``"prompts/system.md"`` /
+        path: 项目相对路径（如 ``"tools/files.py"`` / ``"prompts/core.md"`` /
               ``"ai_agent/loop.py"``）
         offset: 从第几行开始读（1-indexed；0 = 从头）
         limit: 最多读多少行（0 = 不限，仍受 30000 字符上限约束）
@@ -496,9 +527,9 @@ def self_read_file(path: str, offset: int = 0, limit: int = 0) -> str:
     p = (path or "").strip().replace("\\", "/")
     if not p:
         return "❌ path 不能为空"
-    if p in _L0_BLOCKED_FILES:
+    if p in _HARD_BLOCKED_FILES:
         return f"❌ {p!r} 是敏感配置（含密钥等），不可读"
-    for prefix in _L0_BLOCKED_PREFIXES:
+    for prefix in _HARD_BLOCKED_PREFIXES:
         if p.startswith(prefix):
             return "❌ .git/ 目录不可读"
 
@@ -537,6 +568,7 @@ def self_edit_file(
     old_string: str,
     new_string: str,
     reason: str,
+    user_approved: bool = False,
     config: dict = None,
 ) -> str:
     """精确字符串替换式编辑项目内系统文件（你自己的代码 / prompt）—— 长期优化你自己。
@@ -553,9 +585,10 @@ def self_edit_file(
     路径白名单：
     - 根入口：``agent.py`` / ``server.py`` / ``audit.py`` / ``backups.py``
       / ``paths.py`` / ``memory.py``
-    - 前缀：``tools/`` / ``ai_agent/`` / ``prompts/``
-    - **禁**：``.env`` / ``.env.example`` / ``requirements.txt`` / ``.gitignore`` /
-      ``.git/`` 目录
+    - 前缀：``tools/`` / ``ai_agent/`` / ``prompts/`` / ``templates/`` / ``static/``
+    - **硬红线（连放权也不碰）**：``.env``（含密钥）/ ``.git/`` 目录
+    - **需主人同意**：``.env.example`` / ``requirements.txt`` / ``.gitignore`` ——
+      先 ``ask_user`` 说清改什么/为什么/风险，获批后带 ``user_approved=True`` 重试
 
     严格匹配规则：
     - ``old_string`` 必须在文件中**唯一出现**（0 次或多次都失败）
@@ -573,6 +606,9 @@ def self_edit_file(
         old_string: 要替换的精确原文
         new_string: 替换成的新文本
         reason: 改动动机（一句话，会进 commit message + audit）
+        user_approved: 仅当改"需主人同意"文件（.env.example / requirements.txt /
+            .gitignore）时需要 —— 必须先 ask_user 获主人明确同意后才传 True。
+            普通可改路径无需关心此参数。
 
     Returns:
         成功提示 + commit hash，或失败原因（已自动 rollback）。
@@ -583,9 +619,11 @@ def self_edit_file(
         return restricted_err
 
     # 1. 路径校验
-    abs_path, err = _validate_path(path)
+    abs_path, err, requires_approval = _validate_path(path)
     if err:
         return f"❌ {err}"
+    if requires_approval and not user_approved:
+        return _approval_gate_msg(path)
     if abs_path is None or not abs_path.is_file():
         return f"❌ 文件不存在：{path}"
 
@@ -667,6 +705,7 @@ def self_write_file(
     path: str,
     content: str,
     reason: str,
+    user_approved: bool = False,
     config: dict = None,
 ) -> str:
     """整文件覆盖式写入系统文件（你自己的代码 / prompt）。
@@ -675,20 +714,24 @@ def self_write_file(
     替换更稳，diff 也更清晰）。
 
     安全机制同 ``self_edit_file``：改前 safety commit、改后语法 / 长度校验、
-    失败自动 git restore。
+    失败自动 git restore。路径权限同 ``self_edit_file``（硬红线 ``.env`` / ``.git/``；
+    ``.env.example`` / ``requirements.txt`` / ``.gitignore`` 需 ``user_approved=True``）。
 
     Args:
         path: 项目相对路径
         content: 完整新内容（**完全替换**原文件）
         reason: 改动动机
+        user_approved: 仅当改"需主人同意"文件时需要，必须先 ask_user 获同意后才传 True。
     """
     restricted_err = _check_sub_restricted(config)
     if restricted_err:
         return restricted_err
 
-    abs_path, err = _validate_path(path)
+    abs_path, err, requires_approval = _validate_path(path)
     if err:
         return f"❌ {err}"
+    if requires_approval and not user_approved:
+        return _approval_gate_msg(path)
     if abs_path is None:
         return f"❌ 路径无效：{path}"
 
@@ -839,6 +882,7 @@ def self_edit_with_test(
     new_string: str,
     reason: str,
     test_code: str,
+    user_approved: bool = False,
     config: dict = None,
 ) -> str:
     """像 ``self_edit_file`` 一样精确替换，但**强制你先写自检脚本**，跑过才 commit。
@@ -870,6 +914,8 @@ def self_edit_with_test(
         old_string:  要替换的精确原文（必须唯一）
         new_string:  替换成的新文本
         reason:      改动动机
+        user_approved: 仅当改"需主人同意"文件（.env.example / requirements.txt /
+                     .gitignore）时需要，必须先 ask_user 获同意后才传 True。
         test_code:   自检 Python 代码（**至少 80 字符 + 至少含一个 assert**）。
                      可以 ``import`` 项目内任何模块测真实行为。
                      好例子：
@@ -909,9 +955,11 @@ def self_edit_with_test(
         return "❌ 别水 ——『assert True』之类的不算验证"
 
     # 1. 路径校验
-    abs_path, err = _validate_path(path)
+    abs_path, err, requires_approval = _validate_path(path)
     if err:
         return f"❌ {err}"
+    if requires_approval and not user_approved:
+        return _approval_gate_msg(path)
     if abs_path is None or not abs_path.is_file():
         return f"❌ 文件不存在：{path}"
     if not (reason or "").strip():

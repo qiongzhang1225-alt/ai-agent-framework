@@ -352,6 +352,190 @@ def audit_stats(
 
 
 @tool
+def routing_coverage(cutoff: str = "", top_n: int = 12, config: dict = {}) -> str:
+    """跨会话「路由覆盖率」自查：专用工具到底有没有被路由送达（验证稀疏路由是否有效）。
+
+    跟 audit_stats 的区别（这是关键）:
+    - audit_stats 只看**当前对话**、只统计**被调用过**的工具的健康度（成功率/耗时）。
+    - 本工具跨**所有会话**聚合，且专门暴露**从没被调用的专用工具**——也就是
+      关键词路由可能根本没送达的那些。量的是覆盖率/利用率，不是调用健康度。
+
+    回答的核心问题:
+    - "专用(领域包)工具的调用占比是多少" —— 是不是还停在接近 0%（稀释没治好）
+    - "哪些专用工具一次都没被路由到" —— 路由盲区（关键词触发没设好 / 工具确实没用）
+    - 给 cutoff 时, 对比某日期前后两个纪元的专用占比 —— 验证某次路由重构有没有提升
+
+    隐私: 只聚合工具名 + 调用计数 + 时间戳, **完全不读 args / 结果内容**, 跨会话也安全。
+
+    Args:
+        cutoff: ISO 日期 (如 "2026-06-23")。给了就把调用按此日期切成
+                "之前 / 之后" 两个纪元对比专用占比 (当天及之后算"之后");
+                留空只出总体覆盖。
+        top_n: 列出调用最多的前 N 个专用工具 (默认 12, 上限 50)。
+
+    返回: 调用构成 (核心/专用/动态占比) + 专用覆盖率 + 从没被调用的专用工具清单
+          (+ cutoff 给定时的前后纪元对比)。
+    """
+    import json as _json
+    from paths import META_DIR
+
+    top_n = max(1, min(int(top_n or 12), 50))
+    cutoff = (cutoff or "").strip()
+
+    # 1) 分类基准（核心集 / 专用领域包）—— 取自 agent 的路由定义本身，保证口径一致。
+    #    import 失败则退化：不分类，只出总体调用计数。
+    core: set[str] = set()
+    specialized: set[str] = set()
+    unity_tools: set[str] = set()
+    try:
+        import agent as _ag
+        core = set(_ag._CORE_TOOLS)
+        for _kw, _subs, _names in _ag._TOOL_BUNDLES.values():
+            specialized.update(_names)
+        specialized -= core
+        specialized.discard("routing_coverage")  # 元工具不统计自己（同 search_tools 排除自身）
+        unity_tools = set(_ag._TOOL_BUNDLES.get("unity", ((), (), ()))[2])
+    except Exception:
+        pass
+
+    def _era(ts: str) -> str:
+        return "before" if ts < cutoff else "after"
+
+    # 2) 跨所有会话枚举 audit.jsonl，只取 tool/phase/ts/ok（不碰 args/result_preview）
+    calls: dict[str, dict[str, int]] = {"all": {}, "before": {}, "after": {}}
+    ok_after: dict[str, int] = {}
+    done_after: dict[str, int] = {}
+    sessions = 0
+
+    if not META_DIR.exists():
+        return "(还没有任何会话审计目录，跑几轮带工具的任务后再来看)"
+
+    for d in sorted(p for p in META_DIR.iterdir() if p.is_dir()):
+        f = d / "audit.jsonl"
+        if not f.exists():
+            continue
+        sessions += 1
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for line in raw_lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = _json.loads(line)
+            except Exception:
+                continue
+            tool = rec.get("tool")
+            phase = rec.get("phase")
+            if not tool or phase not in ("before", "after"):
+                continue
+            if phase == "before":
+                calls["all"][tool] = calls["all"].get(tool, 0) + 1
+                if cutoff:
+                    e = _era(str(rec.get("ts") or ""))
+                    calls[e][tool] = calls[e].get(tool, 0) + 1
+            else:  # after
+                done_after[tool] = done_after.get(tool, 0) + 1
+                if rec.get("ok"):
+                    ok_after[tool] = ok_after.get(tool, 0) + 1
+
+    if not calls["all"]:
+        return f"(扫描了 {sessions} 个会话目录，但没有可用的工具调用记录)"
+
+    def _cls(tool: str) -> str:
+        if tool in core:
+            return "core"
+        if tool in specialized:
+            return "spec"
+        return "dyn"
+
+    def _class_totals(era: str) -> dict[str, int]:
+        agg = {"core": 0, "spec": 0, "dyn": 0}
+        for tool, n in calls[era].items():
+            agg[_cls(tool)] += n
+        return agg
+
+    def _pct(x: int, t: int) -> str:
+        return f"{x * 100 / max(t, 1):.0f}%"
+
+    total_calls = sum(calls["all"].values())
+    ct = _class_totals("all")
+
+    out: list[str] = [f"跨会话路由覆盖率（{sessions} 个会话，{total_calls} 次工具调用）"]
+    if not specialized:
+        out.append("⚠ 无法从 agent 载入路由定义(core/bundles)，跳过分类，只出总体调用计数。")
+    out.append("")
+    out.append("调用构成：")
+    out.append(f"  核心常驻      {ct['core']:>6} 次  {_pct(ct['core'], total_calls):>5}")
+    out.append(f"  专用·领域包   {ct['spec']:>6} 次  {_pct(ct['spec'], total_calls):>5}   <- 专用工具利用率")
+    out.append(f"  动态·技能/MCP {ct['dyn']:>6} 次  {_pct(ct['dyn'], total_calls):>5}")
+
+    if specialized:
+        spec_called = {t for t in calls["all"] if t in specialized}
+        spec_never = sorted(specialized - spec_called)
+        out.append("")
+        out.append(
+            f"专用工具覆盖：命中 {len(spec_called)} / 共 {len(specialized)} 个 "
+            f"({_pct(len(spec_called), len(specialized))})"
+        )
+        top_spec = sorted(
+            ((t, calls["all"][t]) for t in spec_called), key=lambda kv: -kv[1]
+        )[:top_n]
+        if top_spec:
+            out.append("  调用最多的专用工具：")
+            for t, n in top_spec:
+                rate = ok_after.get(t, 0) * 100 / max(done_after.get(t, 0), 1)
+                out.append(f"    · {t}: {n} 次（成功率 {rate:.0f}%）")
+        if spec_never:
+            # 区分「合理闲置」(恢复类/Unity 上下文门控/收尾类) 与「值得查的盲区」，
+            # 别把本就该闲置的工具当成路由失手误报。
+            def _idle_reason(t: str) -> str:
+                if t in unity_tools:
+                    return "Unity 上下文"
+                if t.startswith("restore_") or t in ("self_rollback", "list_trash"):
+                    return "恢复/撤销类"
+                if t == "regenerate_changelog":
+                    return "维护类"
+                if t == "complete_sub_conversation":
+                    return "子对话收尾"
+                return ""
+
+            concern = [t for t in spec_never if not _idle_reason(t)]
+            idle = [t for t in spec_never if _idle_reason(t)]
+            if concern:
+                out.append(
+                    f"  值得查的盲区（{len(concern)} 个 — 非合理闲置，要么路由没送达、要么绑了不用）："
+                )
+                out.append("    " + ", ".join(concern))
+            if idle:
+                out.append(f"  合理闲置（{len(idle)} 个，非问题）：")
+                out.append(
+                    "    " + ", ".join(f"{t}（{_idle_reason(t)}）" for t in idle)
+                )
+
+    if cutoff:
+        cb = _class_totals("before")
+        ca = _class_totals("after")
+        tb = sum(calls["before"].values())
+        ta = sum(calls["after"].values())
+        before_share = cb["spec"] / max(tb, 1)
+        after_share = ca["spec"] / max(ta, 1)
+        delta = (after_share - before_share) * 100
+        arrow = "↑" if delta > 0.5 else ("↓" if delta < -0.5 else "→")
+        out.append("")
+        out.append(f"按 {cutoff} 切段（当天及之后算「之后」）：")
+        out.append(f"  之前：{tb:>6} 次调用，专用占比 {_pct(cb['spec'], tb)}")
+        out.append(f"  之后：{ta:>6} 次调用，专用占比 {_pct(ca['spec'], ta)}")
+        out.append(f"  专用利用率变化：{arrow} {delta:+.0f} 个百分点")
+        if ta < 30:
+            out.append("  ⚠ 「之后」样本不足 30 次，结论还不稳，多跑些任务再复测。")
+
+    return "\n".join(out)
+
+
+@tool
 async def ask_user(
     question: str,
     options: list[str] = None,
