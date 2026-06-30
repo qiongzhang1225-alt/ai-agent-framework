@@ -167,6 +167,9 @@ def write_postmortem(
     # 自动把 lesson 记入长期记忆（跨对话生效）
     _remember_lesson(task, lesson, thread_id)
 
+    # postmortem ↔ workflow 桥：若这条复盘像是关于某个已有工作流，建议沉淀进去
+    bridge = _suggest_workflow_bridge(task, lesson, what_failed)
+
     return (
         f"✅ postmortem 已写入：{path.name}\n"
         f"任务：{task}\n"
@@ -174,6 +177,35 @@ def write_postmortem(
         f"\n"
         f"下次这个对话启动时，最近 3 个 postmortem（含本条）会自动 inject 到你的 system prompt。\n"
         f"主人能在 .sandbox/_meta/{thread_id}/postmortems/ 看完整列表。"
+        + bridge
+    )
+
+
+def _suggest_workflow_bridge(task: str, lesson: str, what_failed: str) -> str:
+    """postmortem ↔ workflow 桥（独有优化 D）。
+
+    复盘写完后，拿 任务+教训+翻车点 去比对已有工作流的 triggers/名字；命中就给一条
+    **非阻断建议** —— 提示用 ``append_workflow_note`` 把这条教训沉淀进那个工作流的
+    last_issues，让它越用越准。
+
+    刻意只"建议"不"自动写入"：last_issues 是有希精心策展的数据，模糊文本命中直接灌进去
+    会污染信号（误命中 + 原始 lesson 未必是 {issue, fix} 的好措辞）；让有希看到建议、
+    用全上下文判断并改写后再决定，质量更高。命中不到 / 出错都返回空串（不影响主流程）。
+    """
+    try:
+        from tools.workflow_store import match_workflows_by_text
+        text = " ".join([task or "", lesson or "", what_failed or ""])
+        hits = match_workflows_by_text(text)
+    except Exception:
+        return ""
+    if not hits:
+        return ""
+    names = "、".join(f"「{w['name']}」" for w in hits[:3])
+    return (
+        f"\n\n🔗 这条教训像是跟你已有的工作流 {names} 相关。\n"
+        f"若确实属于它，调 "
+        f"`append_workflow_note(workflow_name=\"{hits[0]['name']}\", issue=..., fix=...)` "
+        f"把教训沉淀进去，让那个工作流越用越准。"
     )
 
 

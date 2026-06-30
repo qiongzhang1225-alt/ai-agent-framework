@@ -95,18 +95,91 @@ def _seed_user_writable_dirs() -> None:
 
     可写资源 = yuki 可能调 self_edit 改的 + 用户配置 = prompts/ + assets/
     不可写资源 = templates / static / 代码 = 留在 sys._MEIPASS 即可
+
+    prompts/ 版本检测：
+    ------------------
+    bundle 里塞一个 ``_bundle_version.txt``（build 时间戳）。
+    APP_DIR 里有 ``.prompts_bundle_version`` 记录当前 prompts/ 是哪版 bundle 解压的。
+    - 一致 → 不动
+    - 不一致 → 备份 APP_DIR/prompts → prompts.bak.<时间戳>/，用 bundle 覆盖
+
+    assets/ 不做版本检测（用户故意换的背景图 / 图标不能被覆盖）。
     """
     if not IS_FROZEN:
         return  # 源码模式：路径本来就是 APP_DIR，不用解压
 
-    for sub in ("prompts", "assets"):
-        src = BUNDLE_DIR / sub
-        dst = APP_DIR / sub
-        if src.exists() and not dst.exists():
-            try:
-                shutil.copytree(src, dst)
-            except Exception as e:
-                print(f"[seed] 解压 {sub}/ 失败：{e}（不阻塞）")
+    # ── assets/: 首次解压，之后不动 ──
+    src = BUNDLE_DIR / "assets"
+    dst = APP_DIR / "assets"
+    if src.exists() and not dst.exists():
+        try:
+            shutil.copytree(src, dst)
+        except Exception as e:
+            print(f"[seed] 解压 assets/ 失败：{e}（不阻塞）")
+
+    # ── prompts/: 带版本检测 ──
+    prompts_src = BUNDLE_DIR / "prompts"
+    prompts_dst = APP_DIR / "prompts"
+    bundle_ver_file = BUNDLE_DIR / "_bundle_version.txt"
+    app_ver_file = APP_DIR / ".prompts_bundle_version"   # 跟 prompts/ 同级，避免污染 prompts/ 内部
+
+    if not prompts_src.exists():
+        return  # bundle 没 prompts/，啥也别做
+
+    # 读 bundle 版本号（没有就当 "0"，旧 build 上来不会强制升级）
+    bundle_ver = ""
+    if bundle_ver_file.is_file():
+        try:
+            bundle_ver = bundle_ver_file.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+
+    # case A: 首次解压（APP_DIR 没 prompts/）
+    if not prompts_dst.exists():
+        try:
+            shutil.copytree(prompts_src, prompts_dst)
+            if bundle_ver:
+                app_ver_file.write_text(bundle_ver, encoding="utf-8")
+        except Exception as e:
+            print(f"[seed] 解压 prompts/ 失败：{e}（不阻塞）")
+        return
+
+    # case B: 已存在 → 比较版本
+    if not bundle_ver:
+        return  # 旧 build（没版本文件），保持现状
+
+    app_ver = ""
+    if app_ver_file.is_file():
+        try:
+            app_ver = app_ver_file.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+    if app_ver == bundle_ver:
+        return  # 一致，不动
+
+    # case C: 版本不一致 → 备份 + 覆盖
+    import datetime
+    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_dir = APP_DIR / f"prompts.bak.{ts}"
+    try:
+        shutil.move(str(prompts_dst), str(backup_dir))
+    except Exception as e:
+        print(f"[seed] prompts 备份失败：{e}（跳过升级，保留旧版）")
+        return
+    try:
+        shutil.copytree(prompts_src, prompts_dst)
+        app_ver_file.write_text(bundle_ver, encoding="utf-8")
+        print(
+            f"[seed] prompts 升级到 bundle 版本 {bundle_ver}；"
+            f"旧版备份在 {backup_dir.name}/（有希自改过的内容请手动 merge）"
+        )
+    except Exception as e:
+        print(f"[seed] prompts 升级失败：{e}（尝试回滚旧版）")
+        try:
+            if not prompts_dst.exists():
+                shutil.move(str(backup_dir), str(prompts_dst))
+        except Exception:
+            pass
 
 
 # ── 单实例锁 ─────────────────────────────────────────────────────────────
@@ -218,14 +291,18 @@ def start_server(port: int):
     threading.Thread(target=_run, daemon=True, name="uvicorn").start()
 
     # 探活
-    deadline = time.time() + 15
+    # 60s 余量：startup hooks 里 chromadb + bge embedding 预热 ~5s，
+    # MCP bridge 后台 task 不阻塞但 uvx 首次冷启动可能多吃 CPU 拖慢主线程，
+    # 加上 server.py 顶层 import（pandas/openpyxl/chromadb/...）冷启动 5-10s。
+    # 15s 在干净机器上够用，但首次跑 MCP / 多任务并发时容易踩超时。
+    deadline = time.time() + 60
     while time.time() < deadline:
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.3):
                 return server
         except OSError:
             time.sleep(0.2)
-    raise RuntimeError(f"server 在端口 {port} 启动超时（15s）")
+    raise RuntimeError(f"server 在端口 {port} 启动超时（60s）")
 
 
 # ── 系统托盘 ─────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@
 - models/ → **不打包**（太大，用户自行下载或软链接）
 """
 
+import datetime
 import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
@@ -28,6 +29,17 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 block_cipher = None
 
 PROJECT_ROOT = Path(SPECPATH)
+
+# ── 写一个 bundle 版本号文件，给 launcher._seed_user_writable_dirs 用 ──
+# 内容是当前打包时间戳。launcher 启动时比对 APP_DIR/.prompts_bundle_version：
+# - 一致 → 不动
+# - 不一致 → 备份旧 prompts/ + 用 bundle 版本覆盖
+# 让源码改了 prompts/core.md 等后，build 出新 exe 能让用户端的 prompts/ 跟着升级。
+_BUNDLE_VERSION = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+_BUNDLE_VERSION_FILE = PROJECT_ROOT / "build" / "_bundle_version.txt"
+_BUNDLE_VERSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+_BUNDLE_VERSION_FILE.write_text(_BUNDLE_VERSION, encoding="utf-8")
+print(f"[spec] BUNDLE_VERSION = {_BUNDLE_VERSION}")
 
 # ── 大依赖完整收集（避免 PyInstaller 静态分析漏文件 / 子模块）──
 # 这些库内部用 importlib.resources / pkg_resources 等动态加载，
@@ -63,6 +75,8 @@ datas = [
     (str(PROJECT_ROOT / "assets"),    "assets"),
     # Prompt 文件 —— launcher 会把这个解压到 exe 旁（让 yuki 可改）
     (str(PROJECT_ROOT / "prompts"),   "prompts"),
+    # bundle 版本号 —— launcher 用它检测 prompts/ 是否需要升级
+    (str(_BUNDLE_VERSION_FILE),       "."),
 ]
 
 # ── 隐式 import（PyInstaller 静态分析不到的）──
@@ -107,11 +121,13 @@ hiddenimports = [
     "tools.ui_check",
     "tools.plan",
     "tools.verify",
+    "tools.workflow_store",     # 工作流读写后端（被 4 个工作流技能 + agent.py 索引复用）
     "tools.postmortem",
     "tools.code_indexer",
     "tools.coding",
     "tools.changelog",
     "tools.sub_complete",
+    # 统一搜索：search 工具 + _search 子包（显式列全，frozen 不漏）
     "tools.search",
     "tools._search",
     "tools._search.core",
@@ -130,7 +146,11 @@ hiddenimports = [
     "tools._search.engines.taptap",
     "tools._search.engines.arxiv",
     "tools._search.engines.wiki",
+    "ddgs",
     "tools.venv_install",
+    "tools.create_venv",       # 工作目录建 venv（系统真实 Python 绕 frozen）
+    "tools.mcp_bridge",        # MCP 客户端桥接（连 Unity / GitHub MCP 等）
+    "tools.unity_setup",       # 给新 Unity 项目接入 MCPForUnity Bridge 包
     # 微信桥接：launcher.py 在 frozen 模式下 import wechat_bridge 跑线程，
     # 必须显式声明否则 PyInstaller 静态分析不到（launcher 里是字符串 import）
     "wechat_bridge",

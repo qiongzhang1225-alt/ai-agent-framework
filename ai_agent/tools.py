@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import inspect
 from dataclasses import dataclass
 from typing import Any, Callable, get_origin, get_type_hints
@@ -129,3 +130,43 @@ def build_tool_meta(func: Callable) -> Tool:
 def clear_registry() -> None:
     """清空注册表（仅供测试用）。"""
     _REGISTRY.clear()
+
+
+# ── 逃生阀：把工具注入"当前 astream 轮次"的活跃集 ─────────────────────────────
+# 路由（agent._select_tools）默认只给 LLM 绑定当前任务相关的工具子集。当关键词
+# 路由漏掉某个需要的工具时，search_tools 命中后调用 stage_tools_into_turn(...)，
+# 把工具追加进本轮 Agent.astream 的 current_tools / tool_by_name —— 下一个
+# iteration 的 LLM 就能看到并直接调用，等价"按需检索 + 即时激活"。
+#
+# 用 ContextVar 而非 config 传递：(1) 不污染 config（config 会进 audit hook，
+# 塞 callable 可能破坏序列化）；(2) ContextVar 在 asyncio.to_thread 里会被自动
+# 复制传播，所以同步工具（to_thread 执行）与异步工具都能读到。
+_active_turn_stager: contextvars.ContextVar[Callable[[list["Tool"]], list[str]] | None] = (
+    contextvars.ContextVar("active_turn_stager", default=None)
+)
+
+
+def set_turn_stager(fn: Callable[[list["Tool"]], list[str]]) -> contextvars.Token:
+    """Agent.astream 进入时登记本轮的工具暂存回调，返回 token 供退出时 reset。"""
+    return _active_turn_stager.set(fn)
+
+
+def reset_turn_stager(token: contextvars.Token) -> None:
+    """Agent.astream 退出时还原 ContextVar（防止跨轮泄漏）。"""
+    try:
+        _active_turn_stager.reset(token)
+    except (ValueError, LookupError):
+        # token 不属于当前 context（理论上不会发生）；忽略，避免影响主流程
+        pass
+
+
+def stage_tools_into_turn(tools: list["Tool"]) -> list[str]:
+    """把若干工具注入"当前 astream 轮次"的活跃集，返回真正新增的工具名。
+
+    - 在 Agent.astream 上下文内：调用 astream 登记的回调，工具下一步即可调用。
+    - 不在该上下文内（CLI / 单测 / 直接调用）：无暂存器，返回 []（无副作用）。
+    """
+    fn = _active_turn_stager.get()
+    if fn is None:
+        return []
+    return fn(tools)
