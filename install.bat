@@ -47,12 +47,11 @@ if not errorlevel 1 (
     echo   [WARN] MSYS2/MinGW Python detected ^(!PYEXE!^).
     echo   Searching for official Windows Python via py launcher...
     set PYEXE=
-    for %%v in (3.13 3.12 3.11 3.10) do (
+    for %%n in (3.13 3.12 3.11 3.10) do (
         if not defined PYEXE (
-            py -%%v --version >nul 2>&1
+            py -%%n --version >nul 2>&1
             if not errorlevel 1 (
-                for /f "delims=" %%p in ('py -%%v -c "import sys; print(sys.executable)"') do set PYEXE=%%p
-                for /f "tokens=2" %%v2 in ('py -%%v --version 2^>^&1') do set PYVER=%%v2
+                for /f "delims=" %%p in ('py -%%n -c "import sys; print(sys.executable)"') do set PYEXE=%%p
             )
         )
     )
@@ -65,7 +64,8 @@ if not errorlevel 1 (
         pause
         exit /b 1
     )
-    echo   [AUTO] Using official Python: !PYEXE!
+    for /f "tokens=2" %%w in ('"!PYEXE!" --version 2^>^&1') do set PYVER=%%w
+    echo   [AUTO] Using official Python !PYVER!: !PYEXE!
 )
 
 echo   OK: Python !PYVER! ^(!PYEXE!^)
