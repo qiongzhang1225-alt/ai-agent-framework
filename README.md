@@ -25,7 +25,7 @@
 > **前置：Python 3.11**（3.10+ 可用，但 3.11 经过完整验证，最省事）
 > - 下载：https://www.python.org/downloads/release/python-3119/
 > - 安装时勾选 **"Add python.exe to PATH"**
-> - ⚠️ MSYS2 / MinGW / Anaconda 的 Python 会导致安装失败，请用 python.org 官方版
+> - MSYS2 / MinGW Python 会被自动检测并自动切换到官方 Python；Anaconda 建议使用 python.org 官方版
 
 ```bash
 git clone https://github.com/qiongzhang1225-alt/ai-agent-framework.git yuki
@@ -35,7 +35,7 @@ install.bat           # Windows（双击也行）
 ```
 
 `install.bat` / `install.sh` 会自动：
-1. 检测 Python 版本（MSYS2/MinGW 会提前报错并给出修复方法）
+1. 检测 Python 版本（MSYS2/MinGW 自动检测并切换到官方 Python，无需手动处理）
 2. 建 `.venv` 虚拟环境
 3. 装全套依赖（含 chromadb / fastapi / pywebview 等，约 2-5 分钟）
 4. 从 `.env.example` 创建 `.env`，**自动打开让你填 API Key**
@@ -119,8 +119,15 @@ update.bat         # Windows
 
 脚本自动检测你的安装方式，做对的事：
 
-- **git clone 用户**：自动 `git pull` + `pip install -r requirements.txt --upgrade`，一气呵成
-- **zip 解压用户**：脚本提示你去 [Releases 页](https://github.com/qiongzhang1225-alt/ai-agent-framework/releases/latest)下载新 zip 覆盖解压，回来按 Y 完成 pip 依赖升级
+- **git clone 用户**：`git fetch + reset --hard origin/main`（强制同步最新代码，不会和本地修改冲突）→ 自动升级 pip 依赖 → 跑完整性检测。全程无需操作。
+- **zip 解压用户**：脚本提示你去以下地址下载新 zip 覆盖解压，再跑一次 update.bat 完成依赖升级：
+  ```
+  https://github.com/qiongzhang1225-alt/ai-agent-framework/archive/refs/heads/main.zip
+  ```
+
+pip 依赖升级失败时自动用清华镜像重试，国内网络无需额外操作。
+
+> **架构说明**：`update.bat` 是轻量启动器（负责 git 操作），升级逻辑在 `_update_core.bat`（git reset 后从磁盘重新读取，保证始终运行新版本逻辑）。
 
 **你的数据永远不会丢**（`.gitignore` 排除了所有数据目录，新 zip 里不含这些）：
 
@@ -300,6 +307,11 @@ AI 通过 `self_edit` 工具集修改自己：
 ├── models/              本地 embedding 模型（用户下载）
 │
 ├── yuki.spec            PyInstaller 打包配置
+├── install.bat          Windows 一键安装（MSYS2 自动检测+切换，pip 镜像自动重试）
+├── install.sh           Mac/Linux 一键安装
+├── update.bat           Windows 一键升级（轻量启动器，做 git fetch+reset--hard）
+├── _update_core.bat     升级核心逻辑（git reset 后从磁盘重新加载，确保始终跑新版本）
+├── update.sh            Mac/Linux 一键升级
 ├── build.bat            Windows 一键打包
 ├── build.sh             Mac/Linux 一键打包
 │
@@ -319,10 +331,10 @@ AI 通过 `self_edit` 工具集修改自己：
 
 ## 常见问题
 
-**Q: `install.bat` 提示"MSYS2/MinGW Python"错误**
-> 你的 `python` 命令指向 MSYS2 或 MinGW 的 Python，它创建的 venv 格式和 Windows 不同。
-> 解决：从 https://www.python.org/downloads/ 下载官方 Python 3.11，安装时勾选"Add to PATH"，
-> 开一个新的命令提示符窗口再运行 `install.bat`。
+**Q: `install.bat` 提示检测到 MSYS2/MinGW Python**
+> `install.bat` 会自动检测到 MSYS2/MinGW Python，并通过 `py` 启动器切换到官方 Python 继续安装，通常无需手动干预。
+> 若自动切换失败（提示"No official Windows Python found"），请从 https://www.python.org/downloads/ 下载并安装官方 Python 3.11，
+> 安装时勾选"Add python.exe to PATH"，开一个新的命令提示符窗口再运行 `install.bat`。
 
 **Q: pip 安装依赖时很慢 / 超时**
 > 国内网络下载 torch 等大包会慢。`install.bat` 检测到失败后会自动用清华镜像重试。
