@@ -43,22 +43,12 @@ if exist ".git" (
     git pull
     if errorlevel 1 (
         echo.
-        echo   Direct connection failed. Trying mirror ^(ghproxy.com^)...
-        git -c "url.https://ghproxy.com/https://github.com/.insteadOf=https://github.com/" pull
-        if errorlevel 1 (
-            echo.
-            echo   [ERROR] git pull failed on both direct and mirror.
-            echo   Possible causes:
-            echo     - GitHub blocked ^(common in mainland China^) - use a VPN/proxy
-            echo     - Local uncommitted changes - run: git stash
-            echo     - No network connection
-            echo.
-            echo   Alternative: download zip manually and unzip over this folder:
-            echo     https://ghproxy.com/https://github.com/qiongzhang1225-alt/ai-agent-framework/archive/refs/heads/main.zip
-            pause
-            exit /b 1
-        )
-        echo   OK ^(via mirror^)
+        echo   [ERROR] git pull failed. Possible causes:
+        echo     - GitHub unreachable: enable a VPN/proxy, then run update.bat again
+        echo     - Local uncommitted changes: run "git stash" then retry
+        echo     - No network connection
+        pause
+        exit /b 1
     )
 
     REM Show what changed (if anything)
