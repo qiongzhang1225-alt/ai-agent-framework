@@ -65,12 +65,43 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 # 而不是只 print 到用户根本看不到的控制台、前端只收到一个 500 Internal Server Error。
 MEMORY_INIT_ERROR: str | None = None
 
+# DEEPSEEK_API_KEY 缺失 / 仍是占位符时，启动 hook 存这里，/api/health 暴露给前端。
+# 让用户在 UI 里就能看到"还没填 Key"，而不是等到第一次发消息才报 ValueError。
+API_KEY_WARNING: str | None = None
+
 # ── App ──────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="信息统合思念体")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+
+
+# 启动时检测 DEEPSEEK_API_KEY 是否已填，把结果存进 API_KEY_WARNING，
+# /api/health 会把它透传给前端，让用户在 UI 里直接看到提示而不用翻控制台。
+@app.on_event("startup")
+async def _on_startup_check_api_key():
+    global API_KEY_WARNING
+    _PLACEHOLDERS = (
+        "your_deepseek_key_here", "your_key_here", "sk-xxx",
+        "your_api_key", "<your", "填这里", "替换为",
+    )
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not key:
+        API_KEY_WARNING = (
+            "DEEPSEEK_API_KEY 未设置。请打开项目目录的 .env 文件，"
+            "把 your_deepseek_key_here 替换为你的真实 Key。"
+            "（去 https://platform.deepseek.com/api_keys 申请）"
+        )
+    elif any(ph in key for ph in _PLACEHOLDERS) or len(key) < 10:
+        API_KEY_WARNING = (
+            f"DEEPSEEK_API_KEY 看起来还是占位符（当前值: {key!r}）。"
+            "请打开 .env 文件填入真实 Key。"
+        )
+    else:
+        API_KEY_WARNING = None
+    if API_KEY_WARNING:
+        print(f"[startup] [WARN] {API_KEY_WARNING}", flush=True)
 
 
 # 启动时打一次全量快照（C3 保护策略）。同一天已快照过会自动跳过，
@@ -532,6 +563,8 @@ async def health() -> dict:
         "memories": mem_count,
         "memory_ok": mem_ok,
         "memory_error": mem_error,
+        "api_key_ok": API_KEY_WARNING is None,
+        "api_key_warning": API_KEY_WARNING,
     }
 
 

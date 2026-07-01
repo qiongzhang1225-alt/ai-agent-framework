@@ -117,7 +117,7 @@ PyInstaller 打出来的 exe 大头是 Python 标准库 + chromadb + sentence-tr
 
 ⚠️ **打包后 yuki 调 self_edit 改 tools/ai_agent/agent.py 等代码 _不会_ 生效**。
    - 代码嵌入在 exe 内部，PyInstaller 临时目录的修改重启就丢失
-   - **prompts/ 例外**：launcher 已把 prompts 解压到 exe 旁，yuki 改 system.md 会持久化
+   - **prompts/ 例外**：launcher 已把 prompts 解压到 exe 旁，yuki 改 `yuki.md` / `core.md` 会持久化
 
 如果你需要"yuki 边用边改自己代码"的能力：
 - 用源码模式跑（`python launcher.py`）

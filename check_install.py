@@ -350,7 +350,7 @@ CRITICAL_FILES = [
     "ai_agent/__init__.py", "ai_agent/loop.py", "ai_agent/llm.py",
     "tools/__init__.py", "tools/execute.py", "tools/files.py",
     "tools/memory_tools.py", "tools/dialog.py",
-    "prompts/yuki.md", "prompts/system.md",
+    "prompts/yuki.md", "prompts/core.md", "prompts/constitution.md",
     "templates/index.html", "static/style.css",
 ]
 

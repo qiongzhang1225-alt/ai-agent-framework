@@ -17,31 +17,57 @@ REM ---- 1. Check Python ----
 echo [1/5] Checking Python...
 where python >nul 2>&1
 if errorlevel 1 (
-    echo   [ERROR] Python not found. Install Python 3.10+ first:
-    echo   https://www.python.org/downloads/
+    echo   [ERROR] Python not found.
+    echo.
+    echo   Install Python 3.11 ^(recommended^) from:
+    echo     https://www.python.org/downloads/release/python-3119/
+    echo   During install: check "Add python.exe to PATH"
+    echo   Then open a NEW command window and run install.bat again.
     pause
     exit /b 1
 )
+
 for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PYVER=%%v
-REM Version check: chromadb / sentence-transformers / fastapi all require 3.10+.
-REM Older Pythons would crash at pip install with cryptic errors; catch early.
+
+REM Version check: need 3.10+
 python -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>&1
 if errorlevel 1 (
-    echo   [ERROR] Python !PYVER! is too old. Need 3.10 or newer.
-    echo          chromadb / sentence-transformers / fastapi all require 3.10+.
-    echo          Install latest from: https://www.python.org/downloads/
-    echo          ^(If you have multiple Pythons, make sure 'python' on PATH
-    echo           points to the 3.10+ one, or use py -3.11 -m venv .venv^)
+    echo   [ERROR] Python !PYVER! is too old. Need 3.10 or newer ^(3.11 recommended^).
+    echo   Install from: https://www.python.org/downloads/release/python-3119/
+    echo   During install: check "Add python.exe to PATH"
     pause
     exit /b 1
 )
-echo   OK: Python !PYVER!
+
+REM MSYS2 / MinGW / Cygwin check:
+REM These create .venv\bin\ (Unix-style) instead of .venv\Scripts\, breaking this installer.
+for /f "delims=" %%p in ('python -c "import sys; print(sys.executable)"') do set PYEXE=%%p
+echo !PYEXE! | findstr /i "msys64 mingw cygwin ucrt64 clang64" >nul 2>&1
+if not errorlevel 1 (
+    echo   [ERROR] MSYS2/MinGW Python detected: !PYEXE!
+    echo.
+    echo   This Python creates Unix-style venvs ^(.venv\bin\^) which break this
+    echo   installer. Please use the official Windows Python instead:
+    echo.
+    echo     1. Download: https://www.python.org/downloads/release/python-3119/
+    echo     2. During install: check "Add python.exe to PATH"
+    echo     3. Open a NEW command window and run install.bat again.
+    echo.
+    echo   If you already have the official Python via py launcher, run:
+    echo     py -3.11 -m venv .venv
+    echo   then skip to step 3 and run:
+    echo     .venv\Scripts\pip install -r requirements.txt
+    pause
+    exit /b 1
+)
+
+echo   OK: Python !PYVER! ^(!PYEXE!^)
 
 REM ---- 2. Create .venv ----
 echo.
 echo [2/5] Creating virtual environment (.venv)...
 if exist .venv (
-    echo   .venv already exists, reuse
+    echo   .venv already exists, reusing
 ) else (
     python -m venv .venv
     if errorlevel 1 (
@@ -49,21 +75,48 @@ if exist .venv (
         pause
         exit /b 1
     )
-    echo   OK: .venv created
 )
 
-REM ---- 3. Install dependencies ----
-echo.
-echo [3/5] Installing dependencies (this may take 2-5 minutes)...
-.venv\Scripts\python.exe -m pip install --upgrade pip --quiet
-.venv\Scripts\pip.exe install -r requirements.txt
-if errorlevel 1 (
-    echo   [ERROR] pip install failed. Check network or try:
-    echo   .venv\Scripts\pip.exe install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+REM Sanity check: make sure .venv\Scripts\python.exe really exists.
+REM (If MSYS2 detection above somehow missed it, the venv would be Unix-style and fail here.)
+if not exist ".venv\Scripts\python.exe" (
+    echo   [ERROR] .venv\Scripts\python.exe not found after venv creation.
+    echo   This usually means the Python that created it was MSYS2/MinGW.
+    echo   Delete the .venv folder, install official Python 3.11 from python.org,
+    echo   open a NEW command window, and run install.bat again.
     pause
     exit /b 1
 )
-echo   OK: dependencies installed
+echo   OK: .venv ready
+
+REM ---- 3. Install dependencies ----
+echo.
+echo [3/5] Installing dependencies ^(this may take 2-10 minutes^)...
+echo   Upgrading pip first...
+.venv\Scripts\python.exe -m pip install --upgrade pip --quiet
+
+echo   Installing packages from requirements.txt...
+.venv\Scripts\pip.exe install -r requirements.txt
+if errorlevel 1 (
+    echo.
+    echo   [WARN] pip install failed on default PyPI. Retrying with Tsinghua mirror...
+    echo   ^(This mirror is faster for users in mainland China^)
+    .venv\Scripts\pip.exe install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    if errorlevel 1 (
+        echo.
+        echo   [ERROR] pip install failed on both PyPI and Tsinghua mirror.
+        echo   Possible causes:
+        echo     - No network connection
+        echo     - Incompatible Python version ^(use Python 3.11 from python.org^)
+        echo     - Disk space too low
+        echo   Check the errors above, fix them, then run install.bat again.
+        pause
+        exit /b 1
+    )
+    echo   OK: dependencies installed ^(via Tsinghua mirror^)
+) else (
+    echo   OK: dependencies installed
+)
 
 REM ---- 4. Setup .env ----
 echo.
@@ -72,36 +125,54 @@ if not exist .env (
     if exist .env.example (
         copy /Y .env.example .env >nul
         echo   OK: .env created from .env.example
-        echo   [TODO] Edit .env to fill in your DEEPSEEK_API_KEY
-        echo          https://platform.deepseek.com/api_keys
+        echo.
+        echo   ============================================================
+        echo   ACTION REQUIRED: Fill in your DeepSeek API Key
+        echo   ============================================================
+        echo   Notepad will open with your .env file.
+        echo   Find the line: DEEPSEEK_API_KEY=your_deepseek_key_here
+        echo   Replace "your_deepseek_key_here" with your real key ^(sk-xxx...^)
+        echo   Get a free key at: https://platform.deepseek.com/api_keys
+        echo.
+        echo   Save and CLOSE Notepad, then press any key here to continue.
+        echo   ============================================================
+        echo.
+        start /wait notepad.exe .env
+        echo   Continuing...
     ) else (
         echo   [WARN] .env.example missing, please create .env manually
     )
 ) else (
-    echo   .env already exists
+    echo   .env already exists ^(skipping^)
 )
 
 REM ---- 5. Download embedding model ----
 echo.
-echo [5/5] Checking embedding model (bge-base-zh-v1.5)...
+echo [5/5] Checking embedding model ^(bge-base-zh-v1.5^)...
 if exist "models\bge-base-zh-v1.5\pytorch_model.bin" (
     echo   OK: model already downloaded
 ) else (
-    echo   Model not found. Download now? It is about 390 MB.
-    echo   Will use https://hf-mirror.com mirror for China-friendly speed.
-    set /p DOWNLOAD_MODEL=  Continue? [Y/n]:
+    echo   Model not found. It is required for long-term memory ^(~390 MB^).
+    echo   Will use https://hf-mirror.com ^(China-friendly mirror^).
+    echo.
+    set /p DOWNLOAD_MODEL=  Download now? [Y/n]:
     if /i "!DOWNLOAD_MODEL!"=="n" (
-        echo   [SKIPPED] Without the model, memory will not work.
-        echo   You can run install.bat again later or download manually per models\README.md
+        echo.
+        echo   [SKIPPED] Memory features will not work without the model.
+        echo   To download later: run install.bat again, or follow models\README.md
     ) else (
-        echo   Downloading...
+        echo   Downloading... ^(this may take 5-15 minutes depending on your network^)
         set HF_ENDPOINT=https://hf-mirror.com
-        REM 关掉 xet 后端，否则大文件重定向到 hf-mirror 不代理的 cas-bridge.xethub.hf.co 会断流
+        REM Disable xet backend: hf-mirror does not proxy the xet CAS bridge,
+        REM so large files would stall. Classic download works fine.
         set HF_HUB_DISABLE_XET=1
         .venv\Scripts\python.exe -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-base-zh-v1.5', local_dir='models/bge-base-zh-v1.5', local_dir_use_symlinks=False)"
         if errorlevel 1 (
-            echo   [ERROR] download failed
-            echo   Try: edit models\README.md for manual download steps
+            echo.
+            echo   [ERROR] Download failed. Options:
+            echo     1. Run install.bat again to retry
+            echo     2. Download manually: see models\README.md for browser download links
+            echo        ^(ModelScope mirror recommended for China^)
         ) else (
             echo   OK: model downloaded
         )
@@ -122,12 +193,17 @@ echo ============================================================
 echo   Installation done.
 echo ============================================================
 echo.
-echo   Start (desktop mode, recommended):
+echo   If the check above shows only .env / model warnings:
+echo     - .env:   fill in DEEPSEEK_API_KEY ^(already opened in step 4^)
+echo     - model:  download was either done or skipped above
+echo   Both are expected -- they require your action, not a bug.
+echo.
+echo   Start ^(desktop mode, recommended^):
 echo     .venv\Scripts\python launcher.py
 echo.
-echo   Or web mode (open http://127.0.0.1:3616):
-echo     .venv\Scripts\python server.py
+echo   Or double-click launch.bat ^(no console window^)
 echo.
-echo   If completeness check above showed errors, fix them first.
+echo   Or web mode ^(open http://127.0.0.1:3616^):
+echo     .venv\Scripts\python server.py
 echo.
 pause

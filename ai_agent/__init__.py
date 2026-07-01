@@ -1,8 +1,11 @@
-"""自建 Agent 框架（替换 LangChain / LangGraph）。
+"""自建 Agent 框架（无 LangChain / LangGraph 依赖）。
 
-迁移分 5 个 Phase，详见 MIGRATION.md。
-当前阶段：**Phase 1** —— 消息类型 + 工具装饰器（桥接模式，
-仍委托 LangChain 进入 LangGraph 主循环；Phase 3 完成后将彻底脱离）。
+核心组件：
+- messages.py  —— Message / ToolCall / Role
+- tools.py     —— @tool 装饰器 + 注册表
+- llm.py       —— DeepSeek / MiMo 流式客户端
+- loop.py      —— ReAct loop（max 60 轮，断点续传）
+- persist.py   —— JSONCheckpoint
 """
 
 from .messages import Message, ToolCall, Role

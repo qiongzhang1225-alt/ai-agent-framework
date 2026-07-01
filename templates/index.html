@@ -94,7 +94,23 @@
   <!-- 雪花动画背景层 -->
   <div class="snow-layer pointer-events-none fixed inset-0 z-0"></div>
 
-  <div x-data="chatApp()" x-init="init()" class="relative z-10 flex h-screen">
+  <div x-data="chatApp()" x-init="init()" class="relative z-10 flex flex-col h-screen">
+
+    <!-- ─── API Key 警告横幅 ─────────────────────────────────────────────── -->
+    <div
+      x-show="apiKeyWarning"
+      x-transition
+      class="shrink-0 flex items-center gap-3 px-4 py-2 bg-amber-900/80 border-b border-amber-500/40 text-amber-200 text-sm z-50"
+    >
+      <svg class="w-4 h-4 shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <span x-text="apiKeyWarning" class="flex-1"></span>
+      <button @click="apiKeyWarning = null" class="shrink-0 text-amber-400 hover:text-amber-200 transition" title="关闭">✕</button>
+    </div>
+
+    <!-- ─── 主体（侧栏 + 聊天区横向排列）────────────────────────────────── -->
+    <div class="flex flex-1 min-h-0">
 
     <!-- ─── 左侧栏 ───────────────────────────────────────────────────────── -->
     <aside
@@ -1481,6 +1497,7 @@
       </div>
     </div>
 
+    </div><!-- /flex flex-1 min-h-0 主体 -->
   </div>
 
   <!-- ─── Alpine 逻辑 ─────────────────────────────────────────────────────── -->
@@ -1614,9 +1631,20 @@
         // docx 预览缓存（{path: text}）
         docxCache: {},
         docxOpen: {},
+        // API Key 警告横幅
+        apiKeyWarning: null,
 
         // ── 初始化 ──
         async init() {
+          // 检查 API Key 是否已配置（从 /api/health 拿，server 启动时已检测）
+          try {
+            const h = await fetch('/api/health');
+            if (h.ok) {
+              const hd = await h.json();
+              this.apiKeyWarning = hd.api_key_warning || null;
+            }
+          } catch (_) {}
+
           await this.loadConversations();
           if (this.conversations.length === 0) {
             await this.newConversation();

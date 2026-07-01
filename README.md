@@ -22,29 +22,32 @@
 
 ### 一键脚本（推荐，~5 分钟全自动）
 
+> **前置：Python 3.11**（3.10+ 可用，但 3.11 经过完整验证，最省事）
+> - 下载：https://www.python.org/downloads/release/python-3119/
+> - 安装时勾选 **"Add python.exe to PATH"**
+> - ⚠️ MSYS2 / MinGW / Anaconda 的 Python 会导致安装失败，请用 python.org 官方版
+
 ```bash
 git clone https://github.com/qiongzhang1225-alt/ai-agent-framework.git yuki
 cd yuki
-install.bat           # Windows
+install.bat           # Windows（双击也行）
 # ./install.sh        # Mac / Linux
 ```
 
 `install.bat` / `install.sh` 会自动：
-1. 检测 Python ≥ 3.10
+1. 检测 Python 版本（MSYS2/MinGW 会提前报错并给出修复方法）
 2. 建 `.venv` 虚拟环境
-3. 装全套依赖（含 chromadb / fastapi / pywebview 等）
-4. 从 `.env.example` 创建 `.env`
+3. 装全套依赖（含 chromadb / fastapi / pywebview 等，约 2-5 分钟）
+4. 从 `.env.example` 创建 `.env`，**自动打开让你填 API Key**
 5. 下载 bge-base-zh-v1.5 embedding 模型（~390MB，自动用国内镜像）
-6. 跑完整性检测告诉你哪步还差
+6. 跑完整性检测告诉你每步状态
 
-完成后：
-1. **编辑 `.env`** 填 DeepSeek API Key：[控制台](https://platform.deepseek.com/api_keys)
-2. **启动**：
-   ```bash
-   .venv\Scripts\python launcher.py     # Windows 桌面模式（推荐）
-   # .venv/bin/python launcher.py        # Mac / Linux
-   # 或 server.py 走 web 模式 → http://127.0.0.1:3616
-   ```
+完成后直接**启动**（API Key 已在第 4 步填好）：
+```bash
+.venv\Scripts\python launcher.py     # Windows 桌面模式（推荐）
+# .venv/bin/python launcher.py        # Mac / Linux
+# 或 server.py 走 web 模式 → http://127.0.0.1:3616
+```
 
 ---
 
@@ -63,9 +66,16 @@ python -m venv .venv
 #### 2. 配置 API Key
 
 ```bash
-cp .env.example .env
-# 编辑 .env，填入 DeepSeek API Key（https://platform.deepseek.com/api_keys）
+cp .env.example .env        # Windows 用: copy .env.example .env
 ```
+
+用文本编辑器打开 `.env`，把 `your_deepseek_key_here` 替换成你的真实 Key：
+
+```
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+[去 DeepSeek 控制台申请 Key](https://platform.deepseek.com/api_keys)（注册即有免费额度）
 
 #### 3. 下载 embedding 模型（约 390MB）
 
@@ -267,7 +277,14 @@ AI 通过 `self_edit` 工具集修改自己：
 │
 ├── prompts/
 │   ├── yuki.md          角色卡（默认有希，改这个换角色）
-│   └── system.md        系统指令（工作方法 + 工具说明）
+│   ├── core.md          常驻能力指令（工作方法 + 工具决策树）
+│   ├── constitution.md  核心宪法（长对话防漂移，自动重注到末尾）
+│   └── playbooks/       领域手册（按关键词/工具路由，按需注入）
+│       ├── memory.md    记忆操作手册
+│       ├── self_edit.md 自我修改手册
+│       ├── ui_vision.md 视觉/UI 手册
+│       ├── unity.md     Unity 开发手册
+│       └── debug_native.md  原生应用调试手册
 │
 ├── templates/
 │   └── index.html       前端（Tailwind + Alpine.js，无构建工具）
@@ -300,13 +317,45 @@ AI 通过 `self_edit` 工具集修改自己：
 
 ---
 
+## 常见问题
+
+**Q: `install.bat` 提示"MSYS2/MinGW Python"错误**
+> 你的 `python` 命令指向 MSYS2 或 MinGW 的 Python，它创建的 venv 格式和 Windows 不同。
+> 解决：从 https://www.python.org/downloads/ 下载官方 Python 3.11，安装时勾选"Add to PATH"，
+> 开一个新的命令提示符窗口再运行 `install.bat`。
+
+**Q: pip 安装依赖时很慢 / 超时**
+> 国内网络下载 torch 等大包会慢。`install.bat` 检测到失败后会自动用清华镜像重试。
+> 也可以手动指定：`.venv\Scripts\pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple`
+
+**Q: 完整性检测通过了，但发消息时报错 `DEEPSEEK_API_KEY 未设置`**
+> `.env` 里的 Key 还是占位符，没有填真实值。
+> 打开项目根目录的 `.env` 文件，把 `your_deepseek_key_here` 改成你的真实 Key（`sk-xxx...`）。
+
+**Q: 启动时报 `bge embedding 模型不在 models/...`**
+> embedding 模型没有下载，或下载中断（文件不完整）。
+> 重新运行 `install.bat`（它会重试下载），或按 [`models/README.md`](models/README.md) 手动下载。
+
+**Q: 窗口打开了但是空白 / 加载很久**
+> 1. 检查 `.env` 里 `DEEPSEEK_API_KEY` 是否已填
+> 2. 浏览器打开 `http://127.0.0.1:3616` 看 server 是否真的起来了
+> 3. 确认 Python 版本是 3.11（`python --version`）
+
+**Q: `check_install.py` 通过了几项但还是提示有失败**
+> 两项预期的"用户操作"不算安装失败：
+> - `.env` 需要你手动填 API Key
+> - embedding 模型需要下载（~390MB）
+> 其他失败项才需要修复。
+
+---
+
 ## 贡献
 
 欢迎 PR。原则：
 
 - 不引入 LangChain / LangGraph（已脱离，保持自建框架）
 - 不破坏自我进化机制（每次自修改都要能 git revert）
-- 改 prompts/system.md 前先看现有"决策思维"章节，避免重复
+- 改 `prompts/core.md` 前先看现有"决策思维"章节，避免重复
 
 ---
 
