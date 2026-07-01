@@ -44,21 +44,28 @@ REM These create .venv\bin\ (Unix-style) instead of .venv\Scripts\, breaking thi
 for /f "delims=" %%p in ('python -c "import sys; print(sys.executable)"') do set PYEXE=%%p
 echo !PYEXE! | findstr /i "msys64 mingw cygwin ucrt64 clang64" >nul 2>&1
 if not errorlevel 1 (
-    echo   [ERROR] MSYS2/MinGW Python detected: !PYEXE!
-    echo.
-    echo   This Python creates Unix-style venvs ^(.venv\bin\^) which break this
-    echo   installer. Please use the official Windows Python instead:
-    echo.
-    echo     1. Download: https://www.python.org/downloads/release/python-3119/
-    echo     2. During install: check "Add python.exe to PATH"
-    echo     3. Open a NEW command window and run install.bat again.
-    echo.
-    echo   If you already have the official Python via py launcher, run:
-    echo     py -3.11 -m venv .venv
-    echo   then skip to step 3 and run:
-    echo     .venv\Scripts\pip install -r requirements.txt
-    pause
-    exit /b 1
+    echo   [WARN] MSYS2/MinGW Python detected ^(!PYEXE!^).
+    echo   Searching for official Windows Python via py launcher...
+    set PYEXE=
+    for %%v in (3.13 3.12 3.11 3.10) do (
+        if not defined PYEXE (
+            py -%%v --version >nul 2>&1
+            if not errorlevel 1 (
+                for /f "delims=" %%p in ('py -%%v -c "import sys; print(sys.executable)"') do set PYEXE=%%p
+                for /f "tokens=2" %%v2 in ('py -%%v --version 2^>^&1') do set PYVER=%%v2
+            )
+        )
+    )
+    if not defined PYEXE (
+        echo.
+        echo   [ERROR] No official Windows Python found.
+        echo   Install Python 3.11 from: https://www.python.org/downloads/release/python-3119/
+        echo   During install: check "Add python.exe to PATH"
+        echo   Then open a NEW command window and run install.bat again.
+        pause
+        exit /b 1
+    )
+    echo   [AUTO] Using official Python: !PYEXE!
 )
 
 echo   OK: Python !PYVER! ^(!PYEXE!^)
@@ -69,7 +76,7 @@ echo [2/5] Creating virtual environment (.venv)...
 if exist .venv (
     echo   .venv already exists, reusing
 ) else (
-    python -m venv .venv
+    "!PYEXE!" -m venv .venv
     if errorlevel 1 (
         echo   [ERROR] Failed to create .venv
         pause
