@@ -131,4 +131,5 @@ echo.
 echo   Or web mode:
 echo     .venv\Scripts\python server.py
 echo.
+timeout /t 2 /nobreak >nul
 pause

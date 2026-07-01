@@ -213,4 +213,5 @@ echo.
 echo   Or web mode ^(open http://127.0.0.1:3616^):
 echo     .venv\Scripts\python server.py
 echo.
+timeout /t 2 /nobreak >nul
 pause
