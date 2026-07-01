@@ -55,4 +55,4 @@ git reset --hard origin/main
 
 REM Hand off to the new version of the core updater.
 REM call opens _update_core.bat fresh from disk (already updated by reset --hard above).
-call _update_core.bat "!OLD_HEAD!"
+call "%~dp0_update_core.bat" "!OLD_HEAD!"
