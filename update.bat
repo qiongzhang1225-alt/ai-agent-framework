@@ -54,6 +54,5 @@ if errorlevel 1 (
 git reset --hard origin/main
 
 REM Hand off to the new version of the core updater.
-REM cmd /c spawns a fresh process that reads _update_core.bat from scratch,
-REM so the git reset above does not corrupt the execution context.
-cmd /c "_update_core.bat" "!OLD_HEAD!"
+REM call opens _update_core.bat fresh from disk (already updated by reset --hard above).
+call _update_core.bat "!OLD_HEAD!"
