@@ -40,16 +40,16 @@ if exist ".git" (
     REM Save current HEAD so we can show what changed
     for /f "delims=" %%h in ('git rev-parse HEAD 2^>nul') do set OLD_HEAD=%%h
 
-    git pull
+    git fetch origin
     if errorlevel 1 (
         echo.
-        echo   [ERROR] git pull failed. Possible causes:
+        echo   [ERROR] git fetch failed. Possible causes:
         echo     - GitHub unreachable: enable a VPN/proxy, then run update.bat again
-        echo     - Local uncommitted changes: run "git stash" then retry
         echo     - No network connection
         pause
         exit /b 1
     )
+    git reset --hard origin/main
 
     REM Show what changed (if anything)
     for /f "delims=" %%h in ('git rev-parse HEAD 2^>nul') do set NEW_HEAD=%%h
