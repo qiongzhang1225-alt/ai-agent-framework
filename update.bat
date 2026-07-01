@@ -59,6 +59,17 @@ if exist ".git" (
         echo.
         echo   Changes pulled:
         git log --oneline !OLD_HEAD!..HEAD
+        echo.
+        REM If update.bat itself changed, cmd.exe would read the new file
+        REM from the wrong position - ask user to re-run instead.
+        git diff --quiet !OLD_HEAD! HEAD -- update.bat
+        if errorlevel 1 (
+            echo   [NOTE] update.bat itself was refreshed.
+            echo   Please run update.bat again to complete the update.
+            timeout /t 2 /nobreak >nul
+            pause
+            exit /b 0
+        )
     )
     echo   OK
 ) else (
