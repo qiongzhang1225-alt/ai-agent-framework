@@ -1,7 +1,6 @@
 @echo off
-REM Yuki one-click updater for Windows.
-REM Detects install mode (git clone vs zip download) and updates code + pip deps.
-REM User data (.env / .sandbox / .memory / models / .venv / skills) preserved.
+REM Yuki updater launcher — minimal, almost never needs to change.
+REM Does: fetch + reset --hard, then hands off to _update_core.bat (new version).
 
 setlocal enabledelayedexpansion
 chcp 65001 >nul 2>&1
@@ -13,134 +12,48 @@ echo   Yuki one-click updater
 echo ============================================================
 echo.
 
-REM ---- Pre-check: .venv must exist ----
 if not exist ".venv\Scripts\python.exe" (
     echo   [ERROR] .venv not found - run install.bat first.
     pause
     exit /b 1
 )
 
-REM ---- Detect Python for pip (same MSYS2 fallback as install.bat) ----
-set PYEXE=.venv\Scripts\python.exe
+where git >nul 2>&1
+if errorlevel 1 (
+    echo   [ERROR] git not found in PATH.
+    echo   Install Git from: https://git-scm.com/download/win
+    pause
+    exit /b 1
+)
 
-REM ================================================================
-REM  Step 1: Update source code
-REM ================================================================
-if exist ".git" (
-    REM ---- git clone path ----
-    echo [1/3] Pulling latest code ^(git^)...
-    where git >nul 2>&1
-    if errorlevel 1 (
-        echo   [ERROR] git not found in PATH.
-        echo   Install Git from: https://git-scm.com/download/win
-        pause
-        exit /b 1
-    )
-
-    REM Save current HEAD so we can show what changed
-    for /f "delims=" %%h in ('git rev-parse HEAD 2^>nul') do set OLD_HEAD=%%h
-
-    git fetch origin
-    if errorlevel 1 (
-        echo.
-        echo   [ERROR] git fetch failed. Possible causes:
-        echo     - GitHub unreachable: enable a VPN/proxy, then run update.bat again
-        echo     - No network connection
-        pause
-        exit /b 1
-    )
-    git reset --hard origin/main
-
-    REM Show what changed (if anything)
-    for /f "delims=" %%h in ('git rev-parse HEAD 2^>nul') do set NEW_HEAD=%%h
-    if "!OLD_HEAD!"=="!NEW_HEAD!" (
-        echo   Already up to date - no new commits.
-    ) else (
-        echo.
-        echo   Changes pulled:
-        git log --oneline !OLD_HEAD!..HEAD
-        echo.
-        REM If update.bat itself changed, cmd.exe would read the new file
-        REM from the wrong position - ask user to re-run instead.
-        git diff --quiet !OLD_HEAD! HEAD -- update.bat
-        if errorlevel 1 (
-            echo   [NOTE] update.bat itself was refreshed.
-            echo   Please run update.bat again to complete the update.
-            timeout /t 2 /nobreak >nul
-            pause
-            exit /b 0
-        )
-    )
-    echo   OK
-) else (
-    REM ---- zip download path ----
-    echo [1/3] Updating source code ^(zip mode^)...
+if not exist ".git" (
+    echo   No .git folder detected - zip install mode.
     echo.
-    echo   No .git folder found - you installed via zip download.
-    echo.
-    echo   To update, download the latest zip and extract it over this folder:
+    echo   Download latest zip and extract over this folder:
     echo     https://github.com/qiongzhang1225-alt/ai-agent-framework/archive/refs/heads/main.zip
     echo.
-    echo   Steps:
-    echo     1. Download the zip from the URL above
-    echo     2. Open the zip - go into the "ai-agent-framework-main" subfolder
-    echo     3. Select all files inside and copy them over this folder
-    echo        ^(overwrite when prompted^)
-    echo     4. Your data is safe: .env / .memory / models / .venv / skills
-    echo        are not in the zip and will NOT be touched.
-    echo     5. Come back here and press Y to continue with dependency update.
-    echo.
-    set /p CONTINUE=  Done copying? Continue? [Y/n]:
-    if /i "!CONTINUE!"=="n" (
-        echo   Cancelled.
-        pause
-        exit /b 0
-    )
+    echo   Then run update.bat again to upgrade dependencies.
+    pause
+    exit /b 0
 )
 
-REM ================================================================
-REM  Step 2: Upgrade pip dependencies
-REM ================================================================
-echo.
-echo [2/3] Upgrading Python dependencies...
-echo   ^(Only installs what changed in requirements.txt, usually fast^)
-!PYEXE! -m pip install -r requirements.txt --upgrade
+REM Save current HEAD before any changes
+for /f "delims=" %%h in ('git rev-parse HEAD 2^>nul') do set OLD_HEAD=%%h
+
+echo [1/3] Fetching latest code...
+git fetch origin
 if errorlevel 1 (
     echo.
-    echo   [WARN] pip upgrade had errors (see above).
-    echo   Retrying with Tsinghua mirror...
-    !PYEXE! -m pip install -r requirements.txt --upgrade -i https://pypi.tuna.tsinghua.edu.cn/simple
-    if errorlevel 1 (
-        echo   [ERROR] pip upgrade failed on both mirrors. Check errors above.
-    ) else (
-        echo   OK: dependencies upgraded ^(via Tsinghua mirror^)
-    )
-) else (
-    echo   OK: dependencies up to date
+    echo   [ERROR] git fetch failed.
+    echo   - GitHub unreachable: enable a VPN/proxy and try again
+    echo   - No network connection
+    pause
+    exit /b 1
 )
 
-REM ================================================================
-REM  Step 3: Verify installation
-REM ================================================================
-echo.
-echo [3/3] Verifying installation...
-!PYEXE! check_install.py
-echo.
+git reset --hard origin/main
 
-REM ================================================================
-REM  Done
-REM ================================================================
-echo ============================================================
-echo   Update done
-echo ============================================================
-echo.
-echo   To apply changes: close Yuki from the tray, then relaunch.
-echo.
-echo   Start ^(desktop mode^):
-echo     .venv\Scripts\python launcher.py
-echo.
-echo   Or web mode:
-echo     .venv\Scripts\python server.py
-echo.
-timeout /t 2 /nobreak >nul
-pause
+REM Hand off to the new version of the core updater.
+REM cmd /c spawns a fresh process that reads _update_core.bat from scratch,
+REM so the git reset above does not corrupt the execution context.
+cmd /c "_update_core.bat" "!OLD_HEAD!"
